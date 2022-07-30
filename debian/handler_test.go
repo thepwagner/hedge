@@ -7,32 +7,37 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/thepwagner/hedge/debian"
-	"golang.org/x/crypto/openpgp"
-	"golang.org/x/crypto/openpgp/clearsign"
 )
 
 func TestDebianHandler(t *testing.T) {
 	kr, err := openpgp.ReadArmoredKeyRing(strings.NewReader(signingKey))
 	require.NoError(t, err)
 
-	h := debian.NewHandler(logr.Discard(), kr)
+	h := debian.NewHandler(logr.Discard(), func(string) *debian.Release {
+		return &debian.Release{
+			Codename: "bullseye",
+		}
+	}, kr)
 
 	req, _ := http.NewRequest("GET", "/debian/dists/bullseye/InRelease", nil)
 	resp := httptest.NewRecorder()
 	h.HandleInRelease(resp, req)
+	t.Log(resp.Body.String())
 
 	block, rest := clearsign.Decode(resp.Body.Bytes())
+	require.NotNil(t, block)
 	assert.Empty(t, rest)
 
-	_, err = openpgp.CheckDetachedSignature(kr, bytes.NewReader(block.Bytes), block.ArmoredSignature.Body)
+	_, err = openpgp.CheckDetachedSignature(kr, bytes.NewReader(block.Bytes), block.ArmoredSignature.Body, nil)
 	require.NoError(t, err)
 
 	t.Log(resp.Body.String())
-	t.Fail()
 }
 
 const signingKey = `-----BEGIN PGP PRIVATE KEY BLOCK-----

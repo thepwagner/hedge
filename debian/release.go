@@ -2,6 +2,7 @@ package debian
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"strings"
@@ -28,28 +29,27 @@ type Release struct {
 }
 
 func ParseReleaseFile(kr openpgp.EntityList, data []byte) (*Release, error) {
+	// Verify signature:
 	block, _ := clearsign.Decode(data)
 	_, err := openpgp.CheckDetachedSignature(kr, bytes.NewReader(block.Bytes), block.ArmoredSignature.Body, nil)
 	if err != nil {
 		return nil, fmt.Errorf("verification failed: %w", err)
 	}
 
+	// Parse file:
 	var r Release
 	for _, line := range strings.Split(string(block.Plaintext), "\n") {
 		split := strings.SplitN(line, ":", 2)
-		if len(split) == 2 {
-			switch key := split[0]; key {
-			case "Origin":
-				r.Origin = strings.TrimLeft(split[1], " ")
-			}
+		if len(split) != 2 {
+			continue
+		}
+
+		switch key := split[0]; key {
+		case "Origin":
+			r.Origin = strings.TrimLeft(split[1], " ")
 		}
 	}
-
 	return &r, nil
-}
-
-type kv struct {
-	k, v string
 }
 
 func WriteReleaseFile(r Release, w io.Writer) error {
@@ -85,14 +85,33 @@ func WriteReleaseFile(r Release, w io.Writer) error {
 	return nil
 }
 
-func writeKV(w io.Writer, entries ...kv) error {
-	for _, e := range entries {
-		if e.v == "" {
-			continue
-		}
-		if _, err := fmt.Fprintf(w, "%s: %s\n", e.k, e.v); err != nil {
-			return fmt.Errorf("writing %s: %w", e.k, err)
-		}
+type PackagesDigest struct {
+	Path   string
+	Size   int
+	Digest []byte
+}
+
+func PackageHashes(arch string, packages ...Package) ([]PackagesDigest, error) {
+	var buf bytes.Buffer
+	if err := WritePackages(&buf, packages...); err != nil {
+		return nil, err
 	}
-	return nil
+	b := buf.Bytes()
+
+	var digests []PackagesDigest
+	for _, compression := range []Compression{CompressionNone, CompressionXZ} {
+		var buf bytes.Buffer
+		if err := compression.Compress(&buf, bytes.NewReader(b)); err != nil {
+			return nil, err
+		}
+		size := buf.Len()
+		sha := sha256.Sum256(buf.Bytes())
+		digests = append(digests, PackagesDigest{
+			Path:   fmt.Sprintf("main/binary-%s/Packages%s", arch, compression.Extension()),
+			Size:   size,
+			Digest: sha[:],
+		})
+	}
+
+	return digests, nil
 }

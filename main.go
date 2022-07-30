@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zerologr"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
 	"github.com/thepwagner/hedge/debian"
-	"golang.org/x/crypto/openpgp"
 )
 
 type DefaultHandler struct {
@@ -35,10 +35,7 @@ func run(log logr.Logger) error {
 		return err
 	}
 
-	deb := debian.NewHandler(log, kr)
-	if err := deb.LoadDist("bullseye"); err != nil {
-		return err
-	}
+	deb := debian.NewHandler(log, debian.ReleaseFileLoader("testconfig/debian/dists"), kr)
 	deb.Register(r)
 
 	h := &DefaultHandler{log: log}

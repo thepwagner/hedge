@@ -22,5 +22,10 @@ func TestWritePackages(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Log(buf.String())
-	assert.Equal(t, "", buf.String())
+	assert.Equal(t, `Package: bash
+Version: 5.1-2+deb11u1
+Size: 0
+
+
+`, buf.String())
 }

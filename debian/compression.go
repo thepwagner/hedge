@@ -27,6 +27,20 @@ func FromExtension(extension string) Compression {
 	}
 }
 
+func (c Compression) Extension() string {
+	switch c {
+	case CompressionNone:
+
+		return ""
+	case CompressionGZIP:
+		return ".gz"
+	case CompressionXZ:
+		return ".xz"
+	default:
+		return ""
+	}
+}
+
 func (c Compression) Compress(dst io.Writer, src io.Reader) error {
 	switch c {
 	case CompressionNone:
