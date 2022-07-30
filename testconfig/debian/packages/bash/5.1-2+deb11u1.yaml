@@ -1,0 +1,25 @@
+Package: bash
+Version: 5.1-2+deb11u1
+Essential: yes
+Installed-Size: 6469
+Maintainer: Matthias Klose <doko@debian.org>
+Architecture: amd64
+Replaces: bash-completion (<< 20060301-0), bash-doc (<= 2.05-1)
+Depends: base-files (>= 2.1.12), debianutils (>= 2.15)
+Pre-Depends: libc6 (>= 2.25), libtinfo6 (>= 6)
+Recommends: bash-completion (>= 20060301-0)
+Suggests: bash-doc
+Conflicts: bash-completion (<< 20060301-0)
+Description: GNU Bourne Again SHell
+Multi-Arch: foreign
+Homepage: http://tiswww.case.edu/php/chet/bash/bashtop.html
+Description-md5: 3522aa7b4374048d6450e348a5bb45d9
+Tag: admin::TODO, devel::TODO, devel::interpreter, implemented-in::c,
+ interface::shell, interface::text-mode, role::program,
+ scope::application, suite::gnu, uitoolkit::ncurses
+Section: shells
+Priority: required
+Filename: pool/main/b/bash/bash_5.1-2+deb11u1_amd64.deb
+Size: 1416508
+MD5sum: 63a8cf18a82283bb5c3138a23bfda7a3
+SHA256: f702ef058e762d7208a9c83f6f6bbf02645533bfd615c54e8cdcce842cd57377

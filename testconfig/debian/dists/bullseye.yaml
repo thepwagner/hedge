@@ -1,0 +1,4 @@
+codename: bullseye
+
+packages:
+  bash: 5.1-2+deb11u1
