@@ -4,9 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 
-	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zerologr"
 	"github.com/gorilla/mux"
@@ -25,17 +23,19 @@ func (h *DefaultHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func run(log logr.Logger) error {
 	r := mux.NewRouter()
 
-	f, err := os.Open("testdata/priv.txt")
+	bullseyeKey, err := debian.ReadArmoredKeyRingFile("debian/testdata/bullseye_pubkey.txt")
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	kr, err := openpgp.ReadArmoredKeyRing(f)
+	remote := debian.NewRemoteLoader(log)
+	remote.AddKeyring("bullseye", bullseyeKey)
+
+	signingKey, err := debian.ReadArmoredKeyRingFile("testdata/priv.txt")
 	if err != nil {
 		return err
 	}
 
-	deb := debian.NewHandler(log, debian.ReleaseFileLoader("testconfig/debian/dists"), kr)
+	deb := debian.NewHandler(log, remote.Load, signingKey)
 	deb.Register(r)
 
 	h := &DefaultHandler{log: log}

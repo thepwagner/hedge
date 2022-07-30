@@ -20,10 +20,11 @@ func TestParseRelease(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "Debian", r.Origin)
-	// assert.Equal(t, "Debian", r.Label)
-	// assert.Equal(t, "stable", r.Suite)
-	// assert.Equal(t, "11.4", r.Version)
-	// assert.Equal(t, "bullseye", r.Codename)
+	assert.Equal(t, "Debian", r.Label)
+	assert.Equal(t, "stable", r.Suite)
+	assert.Equal(t, "11.4", r.Version)
+	assert.Equal(t, "bullseye", r.Codename)
+	t.Fail()
 }
 
 func loadKey(tb testing.TB, keyfile string) openpgp.EntityList {

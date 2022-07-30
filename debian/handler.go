@@ -2,6 +2,7 @@ package debian
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -25,7 +26,7 @@ type Handler struct {
 	packages    map[packageVersion]Package
 }
 
-type ReleaseLoader func(string) *Release
+type ReleaseLoader func(ctx context.Context, dist string) (*Release, error)
 
 type packageVersion struct {
 	pkg     string
@@ -47,19 +48,18 @@ func (h *Handler) Register(r *mux.Router) {
 }
 
 func ReleaseFileLoader(base string) ReleaseLoader {
-	return func(dist string) *Release {
+	return func(_ context.Context, dist string) (*Release, error) {
 		f, err := os.Open(filepath.Join(base, fmt.Sprintf("%s.yaml", dist)))
 		if err != nil {
-			return nil
+			return nil, nil
 		}
 		defer f.Close()
 
 		var r Release
 		if err := yaml.NewDecoder(f).Decode(&r); err != nil {
-			return nil
+			return nil, err
 		}
-
-		return &r
+		return &r, nil
 	}
 }
 
@@ -70,7 +70,12 @@ func (h *Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 	pk := h.keyring[0].PrivateKey
 	h.log.V(1).Info("handling InRelease", "dist", dist, "private_key", pk.KeyId)
 
-	release := h.loadRelease(dist)
+	release, err := h.loadRelease(r.Context(), dist)
+	if err != nil {
+		h.log.Error(err, "release loading error")
+		http.Error(w, "dist not found", http.StatusNotFound)
+		return
+	}
 	if release == nil {
 		http.Error(w, "dist not found", http.StatusNotFound)
 		return

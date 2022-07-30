@@ -2,6 +2,7 @@ package debian_test
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,10 +20,10 @@ func TestDebianHandler(t *testing.T) {
 	kr, err := openpgp.ReadArmoredKeyRing(strings.NewReader(signingKey))
 	require.NoError(t, err)
 
-	h := debian.NewHandler(logr.Discard(), func(string) *debian.Release {
+	h := debian.NewHandler(logr.Discard(), func(context.Context, string) (*debian.Release, error) {
 		return &debian.Release{
 			Codename: "bullseye",
-		}
+		}, nil
 	}, kr)
 
 	req, _ := http.NewRequest("GET", "/debian/dists/bullseye/InRelease", nil)
