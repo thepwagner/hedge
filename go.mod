@@ -7,6 +7,7 @@ require (
 	github.com/go-logr/logr v1.2.3
 	github.com/go-logr/zerologr v1.2.2
 	github.com/gorilla/mux v1.8.0
+	github.com/mitchellh/mapstructure v1.5.0
 	github.com/rs/zerolog v1.27.0
 	github.com/stretchr/testify v1.8.0
 	github.com/ulikunitz/xz v0.5.10

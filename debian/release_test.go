@@ -4,6 +4,7 @@ import (
 	"io/ioutil"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/stretchr/testify/assert"
@@ -16,7 +17,7 @@ func TestParseRelease(t *testing.T) {
 	b, err := ioutil.ReadFile("testdata/bullseye_InRelease")
 	require.NoError(t, err)
 
-	r, err := debian.ParseReleaseFile(kr, b)
+	r, err := debian.ParseReleaseFile(b, debian.ParseReleaseOptions{SigningKey: kr})
 	require.NoError(t, err)
 
 	assert.Equal(t, "Debian", r.Origin)
@@ -24,7 +25,27 @@ func TestParseRelease(t *testing.T) {
 	assert.Equal(t, "stable", r.Suite)
 	assert.Equal(t, "11.4", r.Version)
 	assert.Equal(t, "bullseye", r.Codename)
-	t.Fail()
+	assert.Equal(t, "https://metadata.ftp-master.debian.org/changelogs/@CHANGEPATH@_changelog", r.Changelogs)
+	date, _ := time.Parse(time.RFC1123, "Sat, 09 Jul 2022 09:43:23 UTC")
+	assert.Equal(t, date, r.Date())
+	assert.Equal(t, []string{
+		"all",
+		"amd64",
+		"arm64",
+		"armel",
+		"armhf",
+		"i386",
+		"mips64el",
+		"mipsel",
+		"ppc64el",
+		"s390x",
+	}, r.Architectures())
+	assert.Equal(t, []string{
+		"main",
+		"contrib",
+		"non-free",
+	}, r.Components())
+	assert.Equal(t, "Debian 11.4 Released 09 July 2022", r.Description)
 }
 
 func loadKey(tb testing.TB, keyfile string) openpgp.EntityList {

@@ -3,23 +3,84 @@ package debian
 import (
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
+
+	"github.com/mitchellh/mapstructure"
 )
 
 type Package struct {
-	Package       string
-	Source        string
-	Version       string
-	InstalledSize int
-	Maintainer    string
-	Depends       []string
-	PreDepends    []string
-	Section       string
-	Description   string
-	Priority      string
-	Architecture  string
-	Filename      string
-	Size          int
-	Sha256        string
+	Package          string
+	Source           string
+	Version          string
+	InstalledSizeRaw string `mapstructure:"Installed-Size"`
+	Maintainer       string
+	DependsRaw       string `mapstructure:"Depends"`
+	PreDepends       string
+	Section          string
+	TagRaw           string `mapstructure:"Tag"`
+	Description      string
+	Homepage         string
+	Priority         string
+	Architecture     string
+	Filename         string
+	SizeRaw          string `mapstructure:"Size"`
+	Sha256           string
+}
+
+func (p Package) Depends() []string {
+	fmt.Println(p.DependsRaw)
+	return strings.Split(p.DependsRaw, ", ")
+}
+
+func (p Package) Tags() []string {
+	return strings.Split(p.TagRaw, ", ")
+}
+
+func (p Package) Size() int {
+	i, _ := strconv.Atoi(p.SizeRaw)
+	return i
+}
+
+func (p Package) InstalledSize() int {
+	i, _ := strconv.Atoi(p.InstalledSizeRaw)
+	return i
+}
+
+func (p Package) Paragraph() (Paragraph, error) {
+	graph := Paragraph{}
+	if err := mapstructure.Decode(p, &graph); err != nil {
+		return nil, err
+	}
+	if graph["Size"] == "0" {
+		delete(graph, "Size")
+	}
+	return graph, nil
+}
+
+func PackageFromParagraph(graph Paragraph) (Package, error) {
+	var pkg Package
+	if err := mapstructure.Decode(graph, &pkg); err != nil {
+		return pkg, fmt.Errorf("parsing package: %w", err)
+	}
+	return pkg, nil
+}
+
+func ParsePackages(in io.Reader) ([]Package, error) {
+	graphs, err := ParseControlFile(in)
+	if err != nil {
+		return nil, err
+	}
+
+	pkgs := make([]Package, 0, len(graphs))
+	for _, graph := range graphs {
+		pkg, err := PackageFromParagraph(graph)
+		if err != nil {
+			return nil, fmt.Errorf("parsing package: %w", err)
+		}
+		pkgs = append(pkgs, pkg)
+	}
+	return pkgs, nil
 }
 
 var hackPackages = []Package{
@@ -28,7 +89,7 @@ var hackPackages = []Package{
 		Version:      "5.1-2+deb11u1",
 		Architecture: "amd64",
 		Filename:     "pool/main/m/meow/meow_5.1-2+deb11u1_amd64.deb",
-		Size:         5588508,
+		SizeRaw:      "5588508",
 		Sha256:       "610e9f9c41be18af516dd64a6dc1316dbfe1bb8989c52bafa556de9e381d3e29",
 		Description:  "meow",
 	},
@@ -37,28 +98,20 @@ var hackPackages = []Package{
 		Version:      "5.1-2+deb11u1",
 		Architecture: "amd64",
 		Filename:     "pool/main/m/meow/meow_5.1-2+deb11u1_amd64.deb",
-		Size:         5588508,
+		SizeRaw:      "5588508",
 		Sha256:       "610e9f9c41be18af516dd64a6dc1316dbfe1bb8989c52bafa556de9e381d3e29",
 		Description:  "woof",
 	},
 }
 
 func WritePackages(out io.Writer, packages ...Package) error {
+	graphs := make([]Paragraph, 0, len(packages))
 	for _, pkg := range packages {
-		if err := writeKV(out,
-			kv{k: "Package", v: pkg.Package},
-			kv{k: "Version", v: pkg.Version},
-			kv{k: "Architecture", v: pkg.Architecture},
-			kv{k: "Description", v: pkg.Description},
-			kv{k: "Filename", v: pkg.Filename},
-			kv{k: "Size", v: fmt.Sprintf("%d", pkg.Size)},
-			kv{k: "SHA256", v: pkg.Sha256},
-		); err != nil {
+		graph, err := pkg.Paragraph()
+		if err != nil {
 			return err
 		}
-		fmt.Fprintln(out)
+		graphs = append(graphs, graph)
 	}
-
-	fmt.Fprintln(out)
-	return nil
+	return WriteControlFile(out, graphs...)
 }
