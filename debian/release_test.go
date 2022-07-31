@@ -1,6 +1,7 @@
 package debian_test
 
 import (
+	"bytes"
 	"io/ioutil"
 	"testing"
 	"time"
@@ -16,7 +17,9 @@ func TestParseRelease(t *testing.T) {
 	b, err := ioutil.ReadFile("testdata/bullseye_InRelease")
 	require.NoError(t, err)
 
-	r, err := debian.ParseReleaseFile(b, debian.ParseReleaseOptions{SigningKey: kr})
+	rg, err := debian.ParseReleaseFile(b, kr)
+	require.NoError(t, err)
+	r, err := debian.ReleaseFromParagraph(rg)
 	require.NoError(t, err)
 
 	assert.Equal(t, "Debian", r.Origin)
@@ -27,7 +30,7 @@ func TestParseRelease(t *testing.T) {
 	assert.Equal(t, "https://metadata.ftp-master.debian.org/changelogs/@CHANGEPATH@_changelog", r.Changelogs)
 	date, _ := time.Parse(time.RFC1123, "Sat, 09 Jul 2022 09:43:23 UTC")
 	assert.Equal(t, date, r.Date())
-	assert.Equal(t, []string{
+	assert.Equal(t, []debian.Architecture{
 		"all",
 		"amd64",
 		"arm64",
@@ -39,12 +42,20 @@ func TestParseRelease(t *testing.T) {
 		"ppc64el",
 		"s390x",
 	}, r.Architectures())
-	assert.Equal(t, []string{
+	assert.Equal(t, []debian.Component{
 		"main",
 		"contrib",
 		"non-free",
 	}, r.Components())
 	assert.Equal(t, "Debian 11.4 Released 09 July 2022", r.Description)
+}
+
+func TestWriteReleaseFile(t *testing.T) {
+	r := debian.Release{}
+
+	var buf bytes.Buffer
+	err := debian.WriteReleaseFile(r, nil, &buf)
+	require.NoError(t, err)
 }
 
 func loadKey(tb testing.TB, keyfile string) openpgp.EntityList {

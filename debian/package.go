@@ -83,27 +83,6 @@ func ParsePackages(in io.Reader) ([]Package, error) {
 	return pkgs, nil
 }
 
-var hackPackages = []Package{
-	{
-		Package:      "meow",
-		Version:      "5.1-2+deb11u1",
-		Architecture: "amd64",
-		Filename:     "pool/main/m/meow/meow_5.1-2+deb11u1_amd64.deb",
-		SizeRaw:      "5588508",
-		Sha256:       "610e9f9c41be18af516dd64a6dc1316dbfe1bb8989c52bafa556de9e381d3e29",
-		Description:  "meow",
-	},
-	{
-		Package:      "woof",
-		Version:      "5.1-2+deb11u1",
-		Architecture: "amd64",
-		Filename:     "pool/main/m/meow/meow_5.1-2+deb11u1_amd64.deb",
-		SizeRaw:      "5588508",
-		Sha256:       "610e9f9c41be18af516dd64a6dc1316dbfe1bb8989c52bafa556de9e381d3e29",
-		Description:  "woof",
-	},
-}
-
 func WritePackages(out io.Writer, packages ...Package) error {
 	graphs := make([]Paragraph, 0, len(packages))
 	for _, pkg := range packages {

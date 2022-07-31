@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -12,6 +13,9 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
 	"github.com/mitchellh/mapstructure"
 )
+
+type Architecture string
+type Component string
 
 type Release struct {
 	ComponentsRaw    string `mapstructure:"Components"`
@@ -31,12 +35,22 @@ func (r Release) Date() time.Time {
 	return t
 }
 
-func (r Release) Architectures() []string {
-	return strings.Split(r.ArchitecturesRaw, " ")
+func (r Release) Architectures() []Architecture {
+	split := strings.Split(r.ArchitecturesRaw, " ")
+	ret := make([]Architecture, 0, len(split))
+	for _, s := range split {
+		ret = append(ret, Architecture(s))
+	}
+	return ret
 }
 
-func (r Release) Components() []string {
-	return strings.Split(r.ComponentsRaw, " ")
+func (r Release) Components() []Component {
+	split := strings.Split(r.ComponentsRaw, " ")
+	ret := make([]Component, 0, len(split))
+	for _, s := range split {
+		ret = append(ret, Component(s))
+	}
+	return ret
 }
 
 func (r Release) Paragraph() (Paragraph, error) {
@@ -53,16 +67,10 @@ func (r Release) Paragraph() (Paragraph, error) {
 	return graph, nil
 }
 
-type ParseReleaseOptions struct {
-	SigningKey    openpgp.EntityList
-	Components    []string
-	Architectures []string
-}
-
-func ParseReleaseFile(data []byte, opts ParseReleaseOptions) (*Release, error) {
+func ParseReleaseFile(data []byte, key openpgp.EntityList) (Paragraph, error) {
 	// Verify signature:
 	block, _ := clearsign.Decode(data)
-	_, err := openpgp.CheckDetachedSignature(opts.SigningKey, bytes.NewReader(block.Bytes), block.ArmoredSignature.Body, nil)
+	_, err := openpgp.CheckDetachedSignature(key, bytes.NewReader(block.Bytes), block.ArmoredSignature.Body, nil)
 	if err != nil {
 		return nil, fmt.Errorf("verification failed: %w", err)
 	}
@@ -72,10 +80,10 @@ func ParseReleaseFile(data []byte, opts ParseReleaseOptions) (*Release, error) {
 	if err != nil {
 		return nil, fmt.Errorf("verification failed: %w", err)
 	}
-	if len(graphs) == 0 {
+	if len(graphs) != 1 {
 		return nil, fmt.Errorf("no paragraphs found")
 	}
-	return ReleaseFromParagraph(graphs[0])
+	return graphs[0], nil
 }
 
 func ReleaseFromParagraph(graph Paragraph) (*Release, error) {
@@ -86,16 +94,27 @@ func ReleaseFromParagraph(graph Paragraph) (*Release, error) {
 	return &r, nil
 }
 
-func WriteReleaseFile(r Release, w io.Writer) error {
+func WriteReleaseFile(r Release, pkgs map[Component]map[Architecture][]Package, w io.Writer) error {
 	graph, err := r.Paragraph()
 	if err != nil {
 		return fmt.Errorf("creating paragraph: %w", err)
 	}
 
-	pkgDigests, err := PackageHashes("amd64", hackPackages...)
-	if err != nil {
-		return fmt.Errorf("calculating package hashes: %w", err)
+	var pkgDigests []PackagesDigest
+	for component, archPkgs := range pkgs {
+		for arch, packages := range archPkgs {
+			archDigests, err := PackageHashes(arch, component, packages...)
+			if err != nil {
+				return fmt.Errorf("calculating package hashes: %w", err)
+			}
+			pkgDigests = append(pkgDigests, archDigests...)
+		}
+
 	}
+	sort.Slice(pkgDigests, func(i, j int) bool {
+		return pkgDigests[i].Path < pkgDigests[j].Path
+	})
+
 	digests := make([]string, 0, len(pkgDigests))
 	for _, d := range pkgDigests {
 		digests = append(digests, fmt.Sprintf(" %x %d %s", d.Digest, d.Size, d.Path))
@@ -114,7 +133,7 @@ type PackagesDigest struct {
 	Digest []byte
 }
 
-func PackageHashes(arch string, packages ...Package) ([]PackagesDigest, error) {
+func PackageHashes(arch Architecture, component Component, packages ...Package) ([]PackagesDigest, error) {
 	var buf bytes.Buffer
 	if err := WritePackages(&buf, packages...); err != nil {
 		return nil, err
@@ -130,7 +149,7 @@ func PackageHashes(arch string, packages ...Package) ([]PackagesDigest, error) {
 		size := buf.Len()
 		sha := sha256.Sum256(buf.Bytes())
 		digests = append(digests, PackagesDigest{
-			Path:   fmt.Sprintf("main/binary-%s/Packages%s", arch, compression.Extension()),
+			Path:   fmt.Sprintf("%s/binary-%s/Packages%s", component, arch, compression.Extension()),
 			Size:   size,
 			Digest: sha[:],
 		})

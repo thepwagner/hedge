@@ -23,9 +23,12 @@ func ParseControlFile(in io.Reader) ([]Paragraph, error) {
 	currentGraph := Paragraph{}
 	var lastKey string
 	for bufReader := bufio.NewReader(in); ; {
-		line, _, err := bufReader.ReadLine()
+		line, err := bufReader.ReadString('\n')
 		if errors.Is(err, io.EOF) {
 			break
+		}
+		if len(line) > 0 {
+			line = line[:len(line)-1]
 		}
 
 		// Handle paragraph split:
@@ -37,7 +40,7 @@ func ParseControlFile(in io.Reader) ([]Paragraph, error) {
 		}
 
 		// Handle "^Key:" matches
-		m := debKeyValue.FindSubmatch(line)
+		m := debKeyValue.FindStringSubmatch(line)
 		if len(m) > 0 {
 			key := string(m[1])
 			lastKey = key
@@ -48,7 +51,7 @@ func ParseControlFile(in io.Reader) ([]Paragraph, error) {
 		}
 
 		// Handle values that span multiple lines
-		if len(line) == 0 || line[0] != ' ' {
+		if len(line) == 0 || (line[0] != ' ' && line[0] != '\t') {
 			continue
 		}
 		if _, ok := multilineKeys[lastKey]; ok {

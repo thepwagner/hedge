@@ -3,11 +3,13 @@ package debian
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 
-	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
+	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"github.com/go-logr/logr"
 	"github.com/gorilla/mux"
 	"github.com/thepwagner/hedge/pkg/observability"
@@ -36,7 +38,8 @@ func NewHandler(log logr.Logger, repos ...RepositoryConfig) (*Handler, error) {
 
 func (h *Handler) Register(r *mux.Router) {
 	r.HandleFunc("/debian/dists/{dist}/InRelease", h.HandleInRelease)
-	r.HandleFunc("/debian/dists/{dist}/main/binary-{arch}/Packages{compression:(?:|.xz|.gz)}", h.HandlePackages)
+	r.HandleFunc("/debian/dists/{dist}/{comp}/binary-{arch}/Packages{compression:(?:|.xz|.gz)}", h.HandlePackages)
+	r.HandleFunc("/debian/dists/{dist}/pool/{path:.*}", h.HandlePool)
 }
 
 func (h *Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
@@ -50,13 +53,37 @@ func (h *Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 	dist.HandleInRelease(w, r)
 }
 
+func (h *Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
+	distName := mux.Vars(r)["dist"]
+	dist, ok := h.dists[distName]
+	if !ok {
+		h.log.Info("dist not found", "dist", distName)
+		http.Error(w, "dist not found", http.StatusNotFound)
+		return
+	}
+	dist.HandlePackages(w, r)
+}
+
+func (h *Handler) HandlePool(w http.ResponseWriter, r *http.Request) {
+	distName := mux.Vars(r)["dist"]
+	dist, ok := h.dists[distName]
+	if !ok {
+		h.log.Info("dist not found", "dist", distName)
+		http.Error(w, "dist not found", http.StatusNotFound)
+		return
+	}
+	dist.HandlePool(w, r)
+}
+
 type ReleaseLoader interface {
-	Load(context.Context) (*Release, error)
+	BaseURL() string
+	Load(context.Context) (*Release, map[Component]map[Architecture][]Package, error)
+	LoadPackages(ctx context.Context, comp Component, arch Architecture) ([]Package, error)
 }
 
 type distHandler struct {
 	log     logr.Logger
-	keyring openpgp.EntityList
+	pk      *packet.PrivateKey
 	release ReleaseLoader
 }
 
@@ -83,17 +110,17 @@ func newDistHandler(log logr.Logger, cfg RepositoryConfig) (*distHandler, error)
 
 	return &distHandler{
 		log:     log,
-		keyring: keyring,
+		pk:      keyring[0].PrivateKey,
 		release: release,
 	}, nil
 }
 
 func (dh *distHandler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
-	pk := dh.keyring[0].PrivateKey
-	log := observability.Logger(r.Context(), dh.log)
-	log.V(1).Info("handling InRelease", "private_key", pk.KeyId)
+	ctx := r.Context()
+	log := observability.Logger(ctx, dh.log)
+	log.V(1).Info("handling InRelease", "private_key", hex.EncodeToString(dh.pk.Fingerprint))
 
-	release, err := dh.release.Load(r.Context())
+	release, packages, err := dh.release.Load(ctx)
 	if err != nil {
 		log.Error(err, "release loading error")
 		http.Error(w, "dist not found", http.StatusNotFound)
@@ -104,44 +131,62 @@ func (dh *distHandler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	enc, err := clearsign.Encode(w, pk, nil)
-	if err != nil {
-		log.Error(err, "error encoding clearsign")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if err := WriteReleaseFile(*release, enc); err != nil {
-		log.Error(err, "error writing release file")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if err := enc.Close(); err != nil {
-		log.Error(err, "error closing clearsign")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := clearSign(w, dh.pk, func(out io.Writer) error { return WriteReleaseFile(*release, packages, out) }); err != nil {
+		log.Error(err, "writing signed release")
+		http.Error(w, "", http.StatusInternalServerError)
 		return
 	}
 }
 
-// TODO: dist-ify
-func (h *Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	dist := vars["dist"]
-	arch := vars["arch"]
-	compression := FromExtension(vars["compression"])
+func clearSign(out io.Writer, pk *packet.PrivateKey, writer func(io.Writer) error) error {
+	enc, err := clearsign.Encode(out, pk, nil)
+	if err != nil {
+		return err
+	}
+	if err := writer(enc); err != nil {
+		return err
+	}
+	if err := enc.Close(); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(out)
+	return err
+}
 
-	h.log.V(1).Info("handling Packages", "dist", dist, "arch", arch)
+func (dh *distHandler) HandlePackages(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	arch := Architecture(vars["arch"])
+	comp := Component(vars["comp"])
+	compression := FromExtension(vars["compression"])
+	ctx := r.Context()
+
+	log := observability.Logger(ctx, dh.log)
+	log.V(1).Info("handling Packages", "arch", arch)
+
+	pkgs, err := dh.release.LoadPackages(ctx, comp, arch)
+	if err != nil {
+		log.Error(err, "loading packages")
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
 
 	var buf bytes.Buffer
-	if err := WritePackages(&buf, hackPackages...); err != nil {
-		h.log.Error(err, "writing packages")
+	if err := WritePackages(&buf, pkgs...); err != nil {
+		log.Error(err, "writing packages")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if err := compression.Compress(w, &buf); err != nil {
-		h.log.Error(err, "writing packages")
+		log.Error(err, "writing packages")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func (dh *distHandler) HandlePool(w http.ResponseWriter, r *http.Request) {
+	path := mux.Vars(r)["path"]
+	log := observability.Logger(r.Context(), dh.log)
+	log.V(1).Info("handling pool", "path", path)
+	url := dh.release.BaseURL() + "pool/" + path
+	http.Redirect(w, r, url, http.StatusMovedPermanently)
 }

@@ -6,10 +6,10 @@ source:
     key: debian/testdata/bullseye_pubkey.txt
     release: bullseye
     architectures:
-      - all
+      # - all
       - amd64
-      - arm64
+      # - arm64
+      # bunch of arches are dropped
     components:
       - main
-      - contrib
-      - non-free
+      # contrib and non-free are dropped
