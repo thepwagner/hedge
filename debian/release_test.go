@@ -2,7 +2,6 @@ package debian_test
 
 import (
 	"io/ioutil"
-	"os"
 	"testing"
 	"time"
 
@@ -50,11 +49,7 @@ func TestParseRelease(t *testing.T) {
 
 func loadKey(tb testing.TB, keyfile string) openpgp.EntityList {
 	tb.Helper()
-	f, err := os.Open(keyfile)
-	require.NoError(tb, err)
-	defer f.Close()
-
-	keyring, err := openpgp.ReadArmoredKeyRing(f)
+	keyring, err := debian.ReadArmoredKeyRingFile(keyfile)
 	require.NoError(tb, err)
 	return keyring
 }

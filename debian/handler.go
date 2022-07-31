@@ -5,41 +5,33 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
 	"github.com/go-logr/logr"
 	"github.com/gorilla/mux"
-	"gopkg.in/yaml.v3"
+	"github.com/thepwagner/hedge/pkg/observability"
 )
 
 // Handler implements https://wiki.debian.org/DebianRepository/Format
 type Handler struct {
-	log logr.Logger
-
-	// TODO: probably per-dist?
-	keyring openpgp.EntityList
-
-	loadRelease ReleaseLoader
-	packages    map[packageVersion]Package
+	log   logr.Logger
+	dists map[string]distHandler
 }
 
-type ReleaseLoader func(ctx context.Context, dist string) (*Release, error)
-
-type packageVersion struct {
-	pkg     string
-	version string
-}
-
-func NewHandler(log logr.Logger, loadRelease ReleaseLoader, keyring openpgp.EntityList) *Handler {
-	return &Handler{
-		log:         log.WithName("debian"),
-		loadRelease: loadRelease,
-		keyring:     keyring,
-		packages:    make(map[packageVersion]Package),
+func NewHandler(log logr.Logger, repos ...RepositoryConfig) (*Handler, error) {
+	dists := make(map[string]distHandler, len(repos))
+	for _, cfg := range repos {
+		dh, err := newDistHandler(log, cfg)
+		if err != nil {
+			return nil, err
+		}
+		dists[cfg.Name] = *dh
 	}
+	return &Handler{
+		log:   log.WithName("debian.Handler"),
+		dists: dists,
+	}, nil
 }
 
 func (h *Handler) Register(r *mux.Router) {
@@ -47,32 +39,63 @@ func (h *Handler) Register(r *mux.Router) {
 	r.HandleFunc("/debian/dists/{dist}/main/binary-{arch}/Packages{compression:(?:|.xz|.gz)}", h.HandlePackages)
 }
 
-func ReleaseFileLoader(base string) ReleaseLoader {
-	return func(_ context.Context, dist string) (*Release, error) {
-		f, err := os.Open(filepath.Join(base, fmt.Sprintf("%s.yaml", dist)))
-		if err != nil {
-			return nil, nil
-		}
-		defer f.Close()
-
-		var r Release
-		if err := yaml.NewDecoder(f).Decode(&r); err != nil {
-			return nil, err
-		}
-		return &r, nil
+func (h *Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
+	distName := mux.Vars(r)["dist"]
+	dist, ok := h.dists[distName]
+	if !ok {
+		h.log.Info("dist not found", "dist", distName)
+		http.Error(w, "dist not found", http.StatusNotFound)
+		return
 	}
+	dist.HandleInRelease(w, r)
 }
 
-func (h *Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	dist := vars["dist"]
+type ReleaseLoader interface {
+	Load(context.Context) (*Release, error)
+}
 
-	pk := h.keyring[0].PrivateKey
-	h.log.V(1).Info("handling InRelease", "dist", dist, "private_key", pk.KeyId)
+type distHandler struct {
+	log     logr.Logger
+	keyring openpgp.EntityList
+	release ReleaseLoader
+}
 
-	release, err := h.loadRelease(r.Context(), dist)
+func newDistHandler(log logr.Logger, cfg RepositoryConfig) (*distHandler, error) {
+	if cfg.Key == "" {
+		return nil, fmt.Errorf("missing key")
+	}
+	keyring, err := ReadArmoredKeyRingFile(cfg.Key)
 	if err != nil {
-		h.log.Error(err, "release loading error")
+		return nil, err
+	}
+
+	var release ReleaseLoader
+	if upCfg := cfg.Source.Upstream; upCfg != nil {
+		release, err = NewRemoteLoader(log, *cfg.Source.Upstream)
+	} else {
+		return nil, fmt.Errorf("no source specified")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: configure the filters here
+
+	return &distHandler{
+		log:     log,
+		keyring: keyring,
+		release: release,
+	}, nil
+}
+
+func (dh *distHandler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
+	pk := dh.keyring[0].PrivateKey
+	log := observability.Logger(r.Context(), dh.log)
+	log.V(1).Info("handling InRelease", "private_key", pk.KeyId)
+
+	release, err := dh.release.Load(r.Context())
+	if err != nil {
+		log.Error(err, "release loading error")
 		http.Error(w, "dist not found", http.StatusNotFound)
 		return
 	}
@@ -83,24 +106,25 @@ func (h *Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 
 	enc, err := clearsign.Encode(w, pk, nil)
 	if err != nil {
-		h.log.Error(err, "error encoding clearsign")
+		log.Error(err, "error encoding clearsign")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if err := WriteReleaseFile(*release, enc); err != nil {
-		h.log.Error(err, "error writing release file")
+		log.Error(err, "error writing release file")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if err := enc.Close(); err != nil {
-		h.log.Error(err, "error closing clearsign")
+		log.Error(err, "error closing clearsign")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 }
 
+// TODO: dist-ify
 func (h *Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	dist := vars["dist"]

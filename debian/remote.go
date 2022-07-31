@@ -2,67 +2,70 @@ package debian
 
 import (
 	"context"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/go-logr/logr"
+	"github.com/thepwagner/hedge/pkg/observability"
 )
 
 type RemoteLoader struct {
-	log      logr.Logger
-	baseURL  string
-	keyrings map[string]openpgp.EntityList
-	client   *http.Client
+	log    logr.Logger
+	client *http.Client
 
+	baseURL       string
+	dist          string
+	keyring       openpgp.EntityList
 	architectures []string
 	components    []string
 }
 
-func NewRemoteLoader(log logr.Logger, opts ...RemoteLoaderOption) *RemoteLoader {
+func NewRemoteLoader(log logr.Logger, cfg UpstreamConfig) (*RemoteLoader, error) {
+	if cfg.Release == "" {
+		return nil, fmt.Errorf("missing release")
+	}
+
+	if cfg.Key == "" {
+		return nil, fmt.Errorf("missing keyfile")
+	}
+	kr, err := ReadArmoredKeyRingFile(cfg.Key)
+	if err != nil {
+		return nil, err
+	}
+
+	baseURL := cfg.URL
+	if baseURL == "" {
+		baseURL = "https://deb.debian.org/debian"
+	}
+	architectures := cfg.Architectures
+	if len(architectures) == 0 {
+		architectures = []string{"all", "amd64"}
+	}
+	components := cfg.Components
+	if len(components) == 0 {
+		components = []string{"main", "contrib", "non-free"}
+	}
+
 	l := &RemoteLoader{
-		log:      log.WithName("debian-loader"),
-		baseURL:  "https://deb.debian.org/debian",
-		keyrings: make(map[string]openpgp.EntityList),
-		client:   http.DefaultClient,
+		log:           log.WithName("debian-loader").WithValues("release", cfg.Release),
+		baseURL:       baseURL,
+		keyring:       kr,
+		dist:          cfg.Release,
+		client:        http.DefaultClient,
+		architectures: architectures,
+		components:    components,
 	}
-	for _, opt := range opts {
-		opt(l)
-	}
-
-	if len(l.architectures) == 0 {
-		l.architectures = []string{"all", "amd64"}
-	}
-	if len(l.components) == 0 {
-		l.components = []string{"main", "contrib", "non-free"}
-	}
-
-	l.log.Info("creating remote debian loader", "base_url", l.baseURL, "architectures", l.architectures, "components", l.components)
-	return l
+	l.log.Info("created remote debian loader", "base_url", l.baseURL, "architectures", l.architectures, "components", l.components)
+	return l, nil
 }
 
-type RemoteLoaderOption func(*RemoteLoader)
-
-func WithRemoteLoaderBaseURL(baseURL string) RemoteLoaderOption {
-	return func(r *RemoteLoader) {
-		r.baseURL = baseURL
-	}
-}
-
-func (r *RemoteLoader) AddKeyring(dist string, keyring openpgp.EntityList) {
-	r.keyrings[dist] = keyring
-}
-
-func (r *RemoteLoader) Load(ctx context.Context, dist string) (*Release, error) {
-	log := r.log.WithValues("dist", dist)
-	keyring, ok := r.keyrings[dist]
-	if !ok {
-		log.Info("no keyring found, skipping")
-		return nil, nil
-	}
+func (r *RemoteLoader) Load(ctx context.Context) (*Release, error) {
+	log := observability.Logger(ctx, r.log).V(1)
 	log.Info("loading")
 
-	req, err := http.NewRequestWithContext(ctx, "GET", r.baseURL+"/dists/"+dist+"/InRelease", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", r.baseURL+"/dists/"+r.dist+"/InRelease", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -73,14 +76,14 @@ func (r *RemoteLoader) Load(ctx context.Context, dist string) (*Release, error) 
 		return nil, err
 	}
 	defer resp.Body.Close()
-	log.Info("fetched", "status", resp.StatusCode)
-
 	b, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
+	log.Info("fetched", "status", resp.StatusCode, "bytes_count", len(b))
+
 	return ParseReleaseFile(b, ParseReleaseOptions{
-		SigningKey:    keyring,
+		SigningKey:    r.keyring,
 		Architectures: r.architectures,
 		Components:    r.components,
 	})

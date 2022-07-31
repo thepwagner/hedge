@@ -1,0 +1,15 @@
+key: testdata/priv.txt
+
+source:
+  upstream:
+    url: https://debian.mirror.rafal.ca/debian/
+    key: debian/testdata/bullseye_pubkey.txt
+    release: bullseye
+    architectures:
+      - all
+      - amd64
+      - arm64
+    components:
+      - main
+      - contrib
+      - non-free
