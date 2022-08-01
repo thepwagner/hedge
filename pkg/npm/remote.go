@@ -1,72 +1,46 @@
 package npm
 
 import (
+	"context"
 	"net/http"
 
-	"github.com/go-logr/logr"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
 )
 
 type RemoteLoader struct {
-	log    logr.Logger
-	tracer trace.Tracer
-	client *http.Client
+	tracer  trace.Tracer
+	client  *http.Client
+	baseURL string
 }
 
-func NewRemoteLoader(log logr.Logger, tp trace.TracerProvider) *RemoteLoader {
+var _ PackageLoader = (*RemoteLoader)(nil)
+
+func NewRemoteLoader(tp trace.TracerProvider, baseURL string) *RemoteLoader {
 	tr := otelhttp.NewTransport(http.DefaultTransport, otelhttp.WithTracerProvider(tp))
 	return &RemoteLoader{
-		log:    log,
-		tracer: tp.Tracer("hedge"),
+		tracer:  tp.Tracer("hedge"),
+		baseURL: baseURL,
 		client: &http.Client{
 			Transport: tr,
 		},
 	}
 }
 
-type RemotePackage struct {
-	ID           string                       `json:"_id"`
-	Name         string                       `json:"name"`
-	Description  string                       `json:"description"`
-	DistTags     map[string]string            `json:"dist-tags"`
-	Versions     map[string]RemoteVersionInfo `json:"versions"`
-	Readme       string                       `json:"readme"`
-	Maintainers  []RemoteUser                 `json:"maintainers"`
-	Times        map[string]string            `json:"time"`
-	Author       RemoteUser                   `json:"author"`
-	Homepage     string                       `json:"homepage"`
-	Keywords     []string                     `json:"keywords"`
-	Contributors []RemoteUser                 `json:"contributors"`
-	Users        map[string]bool              `json:"users"`
-}
+func (l *RemoteLoader) GetPackage(ctx context.Context, pkg string) (*Package, error) {
+	ctx, span := l.tracer.Start(ctx, "npm-loader.GetPackage")
+	defer span.End()
 
-type RemoteVersionInfo struct {
-	Name            string             `json:"name"`
-	Version         string             `json:"version"`
-	Description     string             `json:"description"`
-	Main            string             `json:"main"`
-	DevDependencies map[string]string  `json:"devDependencies"`
-	Scripts         map[string]string  `json:"scripts"`
-	Author          RemoteUser         `json:"author"`
-	Distribution    RemoteDistribution `json:"dist"`
-	Maintainers     []RemoteUser       `json:"maintainers"`
-	Deprecated      bool               `json:"deprecated"`
-}
+	req, err := http.NewRequest("GET", l.baseURL+pkg, nil)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	resp, err := l.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
 
-type RemoteDistribution struct {
-	Shasum     string            `json:"shasum"`
-	Tarball    string            `json:"tarball"`
-	Integrity  string            `json:"integrity"`
-	Signatures []RemoteSignature `json:"signatures"`
-}
-
-type RemoteSignature struct {
-	KeyID     string `json:"keyid"`
-	Signature string `json:"sig"`
-}
-
-type RemoteUser struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+	return ParsePackage(resp.Body)
 }

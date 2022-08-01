@@ -1,4 +1,4 @@
-package debian
+package npm
 
 type RepositoryConfig struct {
 	Source  SourceConfig `yaml:"source"`
@@ -16,18 +16,14 @@ type SourceConfig struct {
 	Upstream *UpstreamConfig
 }
 
-// UpstreamConfig is a Debian repository acting as a source.
+// UpstreamConfig is an NPM repository acting as a source.
 type UpstreamConfig struct {
-	URL           string
-	Key           string
-	Release       string
-	Architectures []string
-	Components    []string
+	URL string
 }
 
 type FilterRule struct {
-	Priority string
-	Name     string
-	Pattern  string
-	Version  string
+	Name       string
+	Pattern    string
+	Deprecated *bool
+	Version    string
 }

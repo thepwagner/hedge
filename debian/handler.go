@@ -23,14 +23,14 @@ type Handler struct {
 	dists  map[string]distHandler
 }
 
-func NewHandler(log logr.Logger, tp trace.TracerProvider, repos ...RepositoryConfig) (*Handler, error) {
+func NewHandler(log logr.Logger, tp trace.TracerProvider, repos map[string]*RepositoryConfig) (*Handler, error) {
 	dists := make(map[string]distHandler, len(repos))
-	for _, cfg := range repos {
+	for name, cfg := range repos {
 		dh, err := newDistHandler(log, tp, cfg)
 		if err != nil {
 			return nil, err
 		}
-		dists[cfg.Name] = *dh
+		dists[name] = *dh
 	}
 	return &Handler{
 		log:    log.WithName("debian.Handler"),
@@ -103,7 +103,7 @@ type distHandler struct {
 	release ReleaseLoader
 }
 
-func newDistHandler(log logr.Logger, tp trace.TracerProvider, cfg RepositoryConfig) (*distHandler, error) {
+func newDistHandler(log logr.Logger, tp trace.TracerProvider, cfg *RepositoryConfig) (*distHandler, error) {
 	if cfg.Key == "" {
 		return nil, fmt.Errorf("missing key")
 	}

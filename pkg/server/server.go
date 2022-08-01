@@ -8,6 +8,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/gorilla/mux"
 	"github.com/thepwagner/hedge/debian"
+	"github.com/thepwagner/hedge/pkg/npm"
 	"github.com/thepwagner/hedge/pkg/observability"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
@@ -18,7 +19,7 @@ import (
 )
 
 func RunServer(log logr.Logger, cfg Config) error {
-	tp, err := newTracerProvider("http://localhost:14268/api/traces")
+	tp, err := newTracerProvider("http://192.168.1.23:14268/api/traces")
 	if err != nil {
 		return err
 	}
@@ -27,7 +28,16 @@ func RunServer(log logr.Logger, cfg Config) error {
 	r := mux.NewRouter()
 	if len(cfg.Debian) > 0 {
 		log.V(1).Info("enabled debian support", "debian_repos", len(cfg.Debian))
-		h, err := debian.NewHandler(log, tp, cfg.Debian...)
+		h, err := debian.NewHandler(log, tp, cfg.Debian)
+		if err != nil {
+			return err
+		}
+		h.Register(r)
+	}
+
+	if len(cfg.NPM) > 0 {
+		log.V(1).Info("enabled NPM support", "npm", len(cfg.NPM))
+		h, err := npm.NewHandler(tp, cfg.NPM)
 		if err != nil {
 			return err
 		}
