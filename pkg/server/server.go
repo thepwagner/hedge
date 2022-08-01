@@ -24,12 +24,10 @@ func RunServer(log logr.Logger, cfg Config) error {
 	}
 	otel.SetTracerProvider(tp)
 
-	tracer := tp.Tracer("hedge")
 	r := mux.NewRouter()
-
 	if len(cfg.Debian) > 0 {
 		log.V(1).Info("enabled debian support", "debian_repos", len(cfg.Debian))
-		h, err := debian.NewHandler(log, tracer, cfg.Debian...)
+		h, err := debian.NewHandler(log, tp, cfg.Debian...)
 		if err != nil {
 			return err
 		}

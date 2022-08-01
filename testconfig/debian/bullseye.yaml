@@ -6,10 +6,13 @@ source:
     key: debian/testdata/bullseye_pubkey.txt
     release: bullseye
     architectures:
-      # - all
       - amd64
-      # - arm64
-      # bunch of arches are dropped
     components:
       - main
-      # contrib and non-free are dropped
+
+filters:
+  - priority: required
+  - pattern: ^vim(|-common|-runtime)$
+    version: "8.2.4793-1"
+  - name: xxd
+  - name: libgpm2

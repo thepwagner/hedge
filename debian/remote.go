@@ -2,6 +2,7 @@ package debian
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,7 +17,7 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/go-logr/logr"
 	"github.com/thepwagner/hedge/pkg/observability"
-	"github.com/ulikunitz/xz"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -25,11 +26,12 @@ type RemoteLoader struct {
 	tracer trace.Tracer
 	client *http.Client
 
-	baseURL       string
-	dist          string
-	keyring       openpgp.EntityList
-	architectures []string
-	components    []string
+	baseURL        string
+	dist           string
+	keyring        openpgp.EntityList
+	architectures  []string
+	components     []string
+	packageFilters []func(*Package) bool
 
 	releaseMu    sync.Mutex
 	releaseGraph Paragraph
@@ -38,7 +40,7 @@ type RemoteLoader struct {
 	packages   map[Component]map[Architecture][]Package
 }
 
-func NewRemoteLoader(log logr.Logger, tracer trace.Tracer, cfg UpstreamConfig) (*RemoteLoader, error) {
+func NewRemoteLoader(log logr.Logger, tp trace.TracerProvider, cfg UpstreamConfig, filters []FilterRule) (*RemoteLoader, error) {
 	if cfg.Release == "" {
 		return nil, fmt.Errorf("missing release")
 	}
@@ -64,18 +66,37 @@ func NewRemoteLoader(log logr.Logger, tracer trace.Tracer, cfg UpstreamConfig) (
 		components = []string{"main", "contrib", "non-free"}
 	}
 
+	tr := otelhttp.NewTransport(http.DefaultTransport, otelhttp.WithTracerProvider(tp))
 	l := &RemoteLoader{
 		log:           log.WithName("debian-loader").WithValues("release", cfg.Release),
-		tracer:        tracer,
+		tracer:        tp.Tracer("hedge"),
 		baseURL:       baseURL,
 		keyring:       kr,
 		dist:          cfg.Release,
-		client:        http.DefaultClient,
+		client:        &http.Client{Transport: tr},
 		architectures: architectures,
 		components:    components,
 		packages:      map[Component]map[Architecture][]Package{},
 	}
-	l.log.Info("created remote debian loader", "base_url", l.baseURL, "architectures", l.architectures, "components", l.components)
+
+	for _, filter := range filters {
+		f := filter
+		if filter.Priority != "" {
+			l.packageFilters = append(l.packageFilters, func(pkg *Package) bool { return pkg.Priority == f.Priority })
+		}
+		if filter.Name != "" {
+			l.packageFilters = append(l.packageFilters, func(pkg *Package) bool { return pkg.Package == f.Name })
+		}
+		if filter.Pattern != "" {
+			pattern, err := regexp.Compile(f.Pattern)
+			if err != nil {
+				return nil, err
+			}
+			l.packageFilters = append(l.packageFilters, func(pkg *Package) bool { return pattern.MatchString(pkg.Package) })
+		}
+	}
+
+	l.log.Info("created remote debian loader", "base_url", l.baseURL, "architectures", l.architectures, "components", l.components, "filters", len(l.packageFilters))
 	return l, nil
 }
 
@@ -177,7 +198,7 @@ func (r *RemoteLoader) LoadPackages(ctx context.Context, comp Component, arch Ar
 
 	log.Info("fetching Packages")
 
-	fn := fmt.Sprintf("%s/binary-%s/Packages.xz", comp, arch)
+	fn := fmt.Sprintf("%s/binary-%s/Packages.gz", comp, arch)
 	expectedDigest, expectedSize, err := r.fileMetadata(ctx, log, fn)
 	if err != nil {
 		return nil, err
@@ -208,22 +229,42 @@ func (r *RemoteLoader) LoadPackages(ctx context.Context, comp Component, arch Ar
 	}
 	log.Info("verified expected digest and size")
 
-	xzD, err := xz.NewReader(bytes.NewReader(b))
+	_, parseSpan := r.tracer.Start(ctx, "debian-loader.LoadPackages.Parse")
+	gzr, err := gzip.NewReader(bytes.NewReader(b))
 	if err != nil {
+		parseSpan.End()
 		return nil, err
 	}
-	pkgs, err := ParsePackages(xzD)
+	pkgs, err := ParsePackages(gzr)
 	if err != nil {
+		parseSpan.End()
 		return nil, err
 	}
+	parseSpan.End()
 
+	_, filterSpan := r.tracer.Start(ctx, "debian-loader.LoadPackages.Filter")
+	var filteredCount int
 	mapped := make([]Package, 0, len(pkgs))
 	for _, pkg := range pkgs {
 		pkg.Filename = "dists/" + r.dist + "/" + pkg.Filename
+
+		var accepted bool
+		for _, filter := range r.packageFilters {
+			if filter(&pkg) {
+				accepted = true
+				break
+			}
+		}
+		if !accepted {
+			filteredCount++
+			continue
+		}
+
 		mapped = append(mapped, pkg)
 	}
+	filterSpan.End()
 
-	log.Info("parsed packages", "package_count", len(pkgs))
+	log.Info("parsed packages", "package_count", len(mapped), "filtered_count", filteredCount)
 
 	r.packagesMu.Lock()
 	defer r.packagesMu.Unlock()

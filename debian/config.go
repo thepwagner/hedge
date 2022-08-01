@@ -15,7 +15,13 @@ import (
 // SourceConfig defines where packages are stored.
 type SourceConfig struct {
 	Upstream *UpstreamConfig
-	// TODO: maybe you can list debs from a dir/bucket?
+}
+
+type FilterRule struct {
+	Priority string
+	Name     string
+	Pattern  string
+	Version  string
 }
 
 // UpstreamConfig is a Debian repository acting as a source.
@@ -28,7 +34,8 @@ type UpstreamConfig struct {
 }
 
 type RepositoryConfig struct {
-	Source SourceConfig `yaml:"source"`
+	Source  SourceConfig `yaml:"source"`
+	Filters []FilterRule
 
 	Name string
 	Key  string

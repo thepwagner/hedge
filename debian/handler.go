@@ -23,10 +23,10 @@ type Handler struct {
 	dists  map[string]distHandler
 }
 
-func NewHandler(log logr.Logger, tracer trace.Tracer, repos ...RepositoryConfig) (*Handler, error) {
+func NewHandler(log logr.Logger, tp trace.TracerProvider, repos ...RepositoryConfig) (*Handler, error) {
 	dists := make(map[string]distHandler, len(repos))
 	for _, cfg := range repos {
-		dh, err := newDistHandler(log, tracer, cfg)
+		dh, err := newDistHandler(log, tp, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -34,7 +34,7 @@ func NewHandler(log logr.Logger, tracer trace.Tracer, repos ...RepositoryConfig)
 	}
 	return &Handler{
 		log:    log.WithName("debian.Handler"),
-		tracer: tracer,
+		tracer: tp.Tracer("hedge"),
 		dists:  dists,
 	}, nil
 }
@@ -103,7 +103,7 @@ type distHandler struct {
 	release ReleaseLoader
 }
 
-func newDistHandler(log logr.Logger, tracer trace.Tracer, cfg RepositoryConfig) (*distHandler, error) {
+func newDistHandler(log logr.Logger, tp trace.TracerProvider, cfg RepositoryConfig) (*distHandler, error) {
 	if cfg.Key == "" {
 		return nil, fmt.Errorf("missing key")
 	}
@@ -114,7 +114,7 @@ func newDistHandler(log logr.Logger, tracer trace.Tracer, cfg RepositoryConfig) 
 
 	var release ReleaseLoader
 	if upCfg := cfg.Source.Upstream; upCfg != nil {
-		release, err = NewRemoteLoader(log, tracer, *cfg.Source.Upstream)
+		release, err = NewRemoteLoader(log, tp, *cfg.Source.Upstream, cfg.Filters)
 	} else {
 		return nil, fmt.Errorf("no source specified")
 	}
@@ -122,11 +122,9 @@ func newDistHandler(log logr.Logger, tracer trace.Tracer, cfg RepositoryConfig) 
 		return nil, err
 	}
 
-	// TODO: configure the filters here
-
 	return &distHandler{
 		log:     log,
-		tracer:  tracer,
+		tracer:  tp.Tracer("hedge"),
 		pk:      keyring[0].PrivateKey,
 		release: release,
 	}, nil

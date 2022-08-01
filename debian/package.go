@@ -29,7 +29,6 @@ type Package struct {
 }
 
 func (p Package) Depends() []string {
-	fmt.Println(p.DependsRaw)
 	return strings.Split(p.DependsRaw, ", ")
 }
 

@@ -1,0 +1,10 @@
+source:
+  upstream:
+    url: https://registry.npmjs.org/
+
+filter:
+  rules:
+    - name: mustache
+      versions:
+        - "4.1.0"
+    - pattern: ^jquery.*$
