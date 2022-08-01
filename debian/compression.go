@@ -13,7 +13,8 @@ type Compression string
 var (
 	CompressionNone = Compression("")
 	CompressionGZIP = Compression("gzip")
-	CompressionXZ   = Compression("xz")
+	// CompressionXZ is way too slow.
+	CompressionXZ = Compression("xz")
 )
 
 func FromExtension(extension string) Compression {

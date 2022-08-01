@@ -13,26 +13,29 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/gorilla/mux"
 	"github.com/thepwagner/hedge/pkg/observability"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Handler implements https://wiki.debian.org/DebianRepository/Format
 type Handler struct {
-	log   logr.Logger
-	dists map[string]distHandler
+	log    logr.Logger
+	tracer trace.Tracer
+	dists  map[string]distHandler
 }
 
-func NewHandler(log logr.Logger, repos ...RepositoryConfig) (*Handler, error) {
+func NewHandler(log logr.Logger, tracer trace.Tracer, repos ...RepositoryConfig) (*Handler, error) {
 	dists := make(map[string]distHandler, len(repos))
 	for _, cfg := range repos {
-		dh, err := newDistHandler(log, cfg)
+		dh, err := newDistHandler(log, tracer, cfg)
 		if err != nil {
 			return nil, err
 		}
 		dists[cfg.Name] = *dh
 	}
 	return &Handler{
-		log:   log.WithName("debian.Handler"),
-		dists: dists,
+		log:    log.WithName("debian.Handler"),
+		tracer: tracer,
+		dists:  dists,
 	}, nil
 }
 
@@ -43,6 +46,10 @@ func (h *Handler) Register(r *mux.Router) {
 }
 
 func (h *Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
+	ctx, span := h.tracer.Start(r.Context(), "debian.HandleInRelease")
+	defer span.End()
+	r = r.WithContext(ctx)
+
 	distName := mux.Vars(r)["dist"]
 	dist, ok := h.dists[distName]
 	if !ok {
@@ -54,6 +61,10 @@ func (h *Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
+	ctx, span := h.tracer.Start(r.Context(), "debian.HandlePackages")
+	defer span.End()
+	r = r.WithContext(ctx)
+
 	distName := mux.Vars(r)["dist"]
 	dist, ok := h.dists[distName]
 	if !ok {
@@ -65,6 +76,10 @@ func (h *Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandlePool(w http.ResponseWriter, r *http.Request) {
+	ctx, span := h.tracer.Start(r.Context(), "debian.HandlePool")
+	defer span.End()
+	r = r.WithContext(ctx)
+
 	distName := mux.Vars(r)["dist"]
 	dist, ok := h.dists[distName]
 	if !ok {
@@ -83,11 +98,12 @@ type ReleaseLoader interface {
 
 type distHandler struct {
 	log     logr.Logger
+	tracer  trace.Tracer
 	pk      *packet.PrivateKey
 	release ReleaseLoader
 }
 
-func newDistHandler(log logr.Logger, cfg RepositoryConfig) (*distHandler, error) {
+func newDistHandler(log logr.Logger, tracer trace.Tracer, cfg RepositoryConfig) (*distHandler, error) {
 	if cfg.Key == "" {
 		return nil, fmt.Errorf("missing key")
 	}
@@ -98,7 +114,7 @@ func newDistHandler(log logr.Logger, cfg RepositoryConfig) (*distHandler, error)
 
 	var release ReleaseLoader
 	if upCfg := cfg.Source.Upstream; upCfg != nil {
-		release, err = NewRemoteLoader(log, *cfg.Source.Upstream)
+		release, err = NewRemoteLoader(log, tracer, *cfg.Source.Upstream)
 	} else {
 		return nil, fmt.Errorf("no source specified")
 	}
@@ -110,6 +126,7 @@ func newDistHandler(log logr.Logger, cfg RepositoryConfig) (*distHandler, error)
 
 	return &distHandler{
 		log:     log,
+		tracer:  tracer,
 		pk:      keyring[0].PrivateKey,
 		release: release,
 	}, nil
@@ -131,19 +148,24 @@ func (dh *distHandler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := clearSign(w, dh.pk, func(out io.Writer) error { return WriteReleaseFile(*release, packages, out) }); err != nil {
+	if err := dh.clearSign(ctx, w, func(ctx context.Context, out io.Writer) error {
+		return WriteReleaseFile(ctx, *release, packages, out)
+	}); err != nil {
 		log.Error(err, "writing signed release")
 		http.Error(w, "", http.StatusInternalServerError)
 		return
 	}
 }
 
-func clearSign(out io.Writer, pk *packet.PrivateKey, writer func(io.Writer) error) error {
-	enc, err := clearsign.Encode(out, pk, nil)
+func (dh *distHandler) clearSign(ctx context.Context, out io.Writer, writer func(context.Context, io.Writer) error) error {
+	ctx, span := dh.tracer.Start(ctx, "debian.clearSign")
+	defer span.End()
+
+	enc, err := clearsign.Encode(out, dh.pk, nil)
 	if err != nil {
 		return err
 	}
-	if err := writer(enc); err != nil {
+	if err := writer(ctx, enc); err != nil {
 		return err
 	}
 	if err := enc.Close(); err != nil {

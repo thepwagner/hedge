@@ -17,10 +17,12 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/thepwagner/hedge/pkg/observability"
 	"github.com/ulikunitz/xz"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type RemoteLoader struct {
 	log    logr.Logger
+	tracer trace.Tracer
 	client *http.Client
 
 	baseURL       string
@@ -36,7 +38,7 @@ type RemoteLoader struct {
 	packages   map[Component]map[Architecture][]Package
 }
 
-func NewRemoteLoader(log logr.Logger, cfg UpstreamConfig) (*RemoteLoader, error) {
+func NewRemoteLoader(log logr.Logger, tracer trace.Tracer, cfg UpstreamConfig) (*RemoteLoader, error) {
 	if cfg.Release == "" {
 		return nil, fmt.Errorf("missing release")
 	}
@@ -64,6 +66,7 @@ func NewRemoteLoader(log logr.Logger, cfg UpstreamConfig) (*RemoteLoader, error)
 
 	l := &RemoteLoader{
 		log:           log.WithName("debian-loader").WithValues("release", cfg.Release),
+		tracer:        tracer,
 		baseURL:       baseURL,
 		keyring:       kr,
 		dist:          cfg.Release,
@@ -81,6 +84,8 @@ func (r *RemoteLoader) BaseURL() string {
 }
 
 func (r *RemoteLoader) Load(ctx context.Context) (*Release, map[Component]map[Architecture][]Package, error) {
+	ctx, span := r.tracer.Start(ctx, "debian-loader.Load")
+	defer span.End()
 	log := observability.Logger(ctx, r.log).V(1)
 	log.Info("loading release")
 
@@ -120,6 +125,9 @@ func (r *RemoteLoader) Load(ctx context.Context) (*Release, map[Component]map[Ar
 }
 
 func (r *RemoteLoader) fetchInRelease(ctx context.Context, log logr.Logger) (Paragraph, error) {
+	ctx, span := r.tracer.Start(ctx, "debian-loader.FetchInRelease")
+	defer span.End()
+
 	r.releaseMu.Lock()
 	defer r.releaseMu.Unlock()
 	if r.releaseGraph != nil {
@@ -153,6 +161,8 @@ func (r *RemoteLoader) fetchInRelease(ctx context.Context, log logr.Logger) (Par
 }
 
 func (r *RemoteLoader) LoadPackages(ctx context.Context, comp Component, arch Architecture) ([]Package, error) {
+	ctx, span := r.tracer.Start(ctx, "debian-loader.LoadPackages")
+	defer span.End()
 	log := observability.Logger(ctx, r.log).V(1).WithValues("arch", arch, "component", comp)
 
 	r.packagesMu.RLock()

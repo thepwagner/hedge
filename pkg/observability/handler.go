@@ -27,7 +27,8 @@ func (h *LoggingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log := h.log.V(1).WithValues(logFieldRequestID, requestID)
 	log.Info("request received", "method", r.Method, "url", r.URL.String())
 
-	r = r.WithContext(context.WithValue(r.Context(), ctxKeyRequestID, requestID))
+	ctx := r.Context()
+	r = r.WithContext(context.WithValue(ctx, ctxKeyRequestID, requestID))
 	h.wrapped.ServeHTTP(w, r)
 
 	dur := time.Since(t)

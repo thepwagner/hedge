@@ -2,6 +2,7 @@ package debian
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
 	"github.com/mitchellh/mapstructure"
+	"go.opentelemetry.io/otel"
 )
 
 type Architecture string
@@ -94,7 +96,11 @@ func ReleaseFromParagraph(graph Paragraph) (*Release, error) {
 	return &r, nil
 }
 
-func WriteReleaseFile(r Release, pkgs map[Component]map[Architecture][]Package, w io.Writer) error {
+func WriteReleaseFile(ctx context.Context, r Release, pkgs map[Component]map[Architecture][]Package, w io.Writer) error {
+	tracer := otel.Tracer("hedge")
+	ctx, span := tracer.Start(ctx, "debian.WriteReleaseFile")
+	defer span.End()
+
 	graph, err := r.Paragraph()
 	if err != nil {
 		return fmt.Errorf("creating paragraph: %w", err)
@@ -103,13 +109,12 @@ func WriteReleaseFile(r Release, pkgs map[Component]map[Architecture][]Package, 
 	var pkgDigests []PackagesDigest
 	for component, archPkgs := range pkgs {
 		for arch, packages := range archPkgs {
-			archDigests, err := PackageHashes(arch, component, packages...)
+			archDigests, err := PackageHashes(ctx, arch, component, packages...)
 			if err != nil {
 				return fmt.Errorf("calculating package hashes: %w", err)
 			}
 			pkgDigests = append(pkgDigests, archDigests...)
 		}
-
 	}
 	sort.Slice(pkgDigests, func(i, j int) bool {
 		return pkgDigests[i].Path < pkgDigests[j].Path
@@ -133,19 +138,27 @@ type PackagesDigest struct {
 	Digest []byte
 }
 
-func PackageHashes(arch Architecture, component Component, packages ...Package) ([]PackagesDigest, error) {
-	var buf bytes.Buffer
+func PackageHashes(ctx context.Context, arch Architecture, component Component, packages ...Package) ([]PackagesDigest, error) {
+	tracer := otel.Tracer("hedge")
+	ctx, span := tracer.Start(ctx, "debian.PackageHashes")
+	defer span.End()
+
+	_, writeSpan := tracer.Start(ctx, "debian.WritePackages")
+	var buf strings.Builder
 	if err := WritePackages(&buf, packages...); err != nil {
 		return nil, err
 	}
-	b := buf.Bytes()
+	b := buf.String()
+	writeSpan.End()
 
 	var digests []PackagesDigest
-	for _, compression := range []Compression{CompressionNone, CompressionXZ} {
+	for _, compression := range []Compression{CompressionNone, CompressionGZIP} {
 		var buf bytes.Buffer
-		if err := compression.Compress(&buf, bytes.NewReader(b)); err != nil {
+		_, compressSpan := tracer.Start(ctx, "debian.PackageHashes.Compress")
+		if err := compression.Compress(&buf, strings.NewReader(b)); err != nil {
 			return nil, err
 		}
+		compressSpan.End()
 		size := buf.Len()
 		sha := sha256.Sum256(buf.Bytes())
 		digests = append(digests, PackagesDigest{
