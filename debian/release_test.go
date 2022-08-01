@@ -2,6 +2,7 @@ package debian_test
 
 import (
 	"bytes"
+	"context"
 	"io/ioutil"
 	"testing"
 	"time"
@@ -54,7 +55,7 @@ func TestWriteReleaseFile(t *testing.T) {
 	r := debian.Release{}
 
 	var buf bytes.Buffer
-	err := debian.WriteReleaseFile(r, nil, &buf)
+	err := debian.WriteReleaseFile(context.Background(), r, nil, &buf)
 	require.NoError(t, err)
 }
 
