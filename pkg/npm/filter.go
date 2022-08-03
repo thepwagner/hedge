@@ -2,8 +2,8 @@ package npm
 
 import (
 	"context"
-	"regexp"
 
+	"github.com/thepwagner/hedge/pkg/filter"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -12,30 +12,36 @@ type PackageFilter struct {
 	tracer trace.Tracer
 	loader PackageLoader
 
-	packageRules       []func(*Package) bool
-	versionRules       map[string][]func(*Version) bool
-	globalVersionRules []func(*Version) bool
+	globalPackageFilter filter.Predicate[Package]
+	globalVersionFilter filter.Predicate[Version]
+
+	versionFiltersByPkg map[string][]filter.Predicate[Version]
 }
 
 var _ PackageLoader = (*PackageFilter)(nil)
 
 func NewPackageFilter(tracer trace.Tracer, wrapped PackageLoader, rules ...FilterRule) (*PackageFilter, error) {
-	f := PackageFilter{
-		tracer: tracer,
-		loader: wrapped,
-	}
+	var globalPackagePreds []filter.Predicate[Package]
+	var globalVersionPreds []filter.Predicate[Version]
 	for _, rule := range rules {
 		if rule.Pattern != "" {
-			pattern, err := regexp.Compile(rule.Pattern)
+			predicate, err := filter.MatchesPattern[Package](rule.Pattern)
 			if err != nil {
 				return nil, err
 			}
-			f.packageRules = append(f.packageRules, func(pkg *Package) bool { return pattern.MatchString(pkg.Name) })
+			globalPackagePreds = append(globalPackagePreds, predicate)
 		}
 
 		if rule.Deprecated != nil {
-			f.globalVersionRules = append(f.globalVersionRules, func(v *Version) bool { return *rule.Deprecated == v.Deprecated() })
+			globalVersionPreds = append(globalVersionPreds, filter.MatchesDeprecated[Version](*rule.Deprecated))
 		}
+	}
+
+	f := PackageFilter{
+		tracer:              tracer,
+		loader:              wrapped,
+		globalPackageFilter: filter.AnyOf(globalPackagePreds...),
+		globalVersionFilter: filter.AnyOf(globalVersionPreds...),
 	}
 	return &f, nil
 }
@@ -50,35 +56,22 @@ func (f *PackageFilter) GetPackage(ctx context.Context, pkgName string) (*Packag
 		return nil, err
 	}
 
-	var allowedPkg bool
-	for _, pkgRule := range f.packageRules {
-		if pkgRule(pkg) {
-			allowedPkg = true
-			break
-		}
+	allowed, err := f.globalPackageFilter(ctx, *pkg)
+	if err != nil {
+		return nil, err
 	}
-	if !allowedPkg {
+	if !allowed {
 		return nil, nil
 	}
 
-	versionRules := append(f.globalVersionRules, f.versionRules[pkgName]...)
-	if len(versionRules) > 0 {
-		allowedVersions := make(map[string]Version, len(pkg.Versions))
-		for _, versionRule := range versionRules {
-			for key, version := range pkg.Versions {
-				if _, ok := allowedVersions[key]; ok {
-					continue
-				}
-				if versionRule(&version) {
-					allowedVersions[key] = version
-				}
-			}
-		}
-		if len(allowedVersions) == 0 {
-			return nil, nil
-		}
-		pkg.Versions = allowedVersions
+	allowedVersions, err := filter.FilterMap(ctx, filter.AnyOf(append(f.versionFiltersByPkg[pkgName], f.globalVersionFilter)...), pkg.Versions)
+	if err != nil {
+		return nil, err
 	}
+	if len(allowedVersions) == 0 {
+		return nil, nil
+	}
+	pkg.Versions = allowedVersions
 
 	return pkg, nil
 }

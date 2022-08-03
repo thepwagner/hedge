@@ -19,4 +19,30 @@ func AnyOf[P Predicate[T], T any](preds ...P) Predicate[T] {
 	}
 }
 
-// func (p Predicates[T])
+func FilterSlice[P Predicate[T], T any](ctx context.Context, pred P, in ...T) ([]T, error) {
+	result := make([]T, 0, len(in))
+	for _, t := range in {
+		ok, err := pred(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			result = append(result, t)
+		}
+	}
+	return result, nil
+}
+
+func FilterMap[P Predicate[T], T any, K comparable](ctx context.Context, pred P, in map[K]T) (map[K]T, error) {
+	result := make(map[K]T, len(in))
+	for k, v := range in {
+		ok, err := pred(ctx, v)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			result[k] = v
+		}
+	}
+	return result, nil
+}

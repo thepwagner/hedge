@@ -16,6 +16,7 @@ import (
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/go-logr/logr"
+	"github.com/thepwagner/hedge/pkg/filter"
 	"github.com/thepwagner/hedge/pkg/observability"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
@@ -26,12 +27,12 @@ type RemoteLoader struct {
 	tracer trace.Tracer
 	client *http.Client
 
-	baseURL        string
-	dist           string
-	keyring        openpgp.EntityList
-	architectures  []string
-	components     []string
-	packageFilters []func(*Package) bool
+	baseURL       string
+	dist          string
+	keyring       openpgp.EntityList
+	architectures []string
+	components    []string
+	packageFilter filter.Predicate[Package]
 
 	releaseMu    sync.Mutex
 	releaseGraph Paragraph
@@ -79,24 +80,25 @@ func NewRemoteLoader(log logr.Logger, tp trace.TracerProvider, cfg UpstreamConfi
 		packages:      map[Component]map[Architecture][]Package{},
 	}
 
-	for _, filter := range filters {
-		f := filter
-		if filter.Priority != "" {
-			l.packageFilters = append(l.packageFilters, func(pkg *Package) bool { return pkg.Priority == f.Priority })
+	var predicates []filter.Predicate[Package]
+	for _, f := range filters {
+		if f.Priority != "" {
+			predicates = append(predicates, filter.MatchesPriority[Package](f.Name))
 		}
-		if filter.Name != "" {
-			l.packageFilters = append(l.packageFilters, func(pkg *Package) bool { return pkg.Package == f.Name })
+		if f.Name != "" {
+			predicates = append(predicates, filter.MatchesName[Package](f.Name))
 		}
-		if filter.Pattern != "" {
-			pattern, err := regexp.Compile(f.Pattern)
+		if f.Pattern != "" {
+			predicate, err := filter.MatchesPattern[Package](f.Pattern)
 			if err != nil {
 				return nil, err
 			}
-			l.packageFilters = append(l.packageFilters, func(pkg *Package) bool { return pattern.MatchString(pkg.Package) })
+			predicates = append(predicates, predicate)
 		}
 	}
+	l.packageFilter = filter.AnyOf(predicates...)
 
-	l.log.Info("created remote debian loader", "base_url", l.baseURL, "architectures", l.architectures, "components", l.components, "filters", len(l.packageFilters))
+	l.log.Info("created remote debian loader", "base_url", l.baseURL, "architectures", l.architectures, "components", l.components, "filters", len(predicates))
 	return l, nil
 }
 
@@ -248,14 +250,10 @@ func (r *RemoteLoader) LoadPackages(ctx context.Context, comp Component, arch Ar
 	for _, pkg := range pkgs {
 		pkg.Filename = "dists/" + r.dist + "/" + pkg.Filename
 
-		var accepted bool
-		for _, filter := range r.packageFilters {
-			if filter(&pkg) {
-				accepted = true
-				break
-			}
-		}
-		if !accepted {
+		if ok, err := r.packageFilter(ctx, pkg); err != nil {
+			filterSpan.End()
+			return nil, err
+		} else if !ok {
 			filteredCount++
 			continue
 		}

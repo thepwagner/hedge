@@ -45,6 +45,8 @@ type Package struct {
 	Users        map[string]bool `json:"users"`
 }
 
+func (p Package) GetName() string { return p.Name }
+
 func (p Package) LatestVersion() string {
 	if p.DistTags == nil {
 		return ""
@@ -73,7 +75,7 @@ type Version struct {
 	DeprecationMessage string       `json:"deprecated"`
 }
 
-func (v Version) Deprecated() bool {
+func (v Version) GetDeprecated() bool {
 	return v.DeprecationMessage != ""
 }
 

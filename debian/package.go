@@ -28,6 +28,9 @@ type Package struct {
 	Sha256           string
 }
 
+func (p Package) GetName() string     { return p.Package }
+func (p Package) GetPriority() string { return p.Priority }
+
 func (p Package) Depends() []string {
 	return strings.Split(p.DependsRaw, ", ")
 }
