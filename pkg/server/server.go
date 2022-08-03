@@ -56,12 +56,13 @@ func RunServer(log logr.Logger, cfg Config) error {
 }
 
 func newTracerProvider(url string) (*tracesdk.TracerProvider, error) {
-	exp, err := jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(url)))
+	jaegerOut, err := jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(url)))
 	if err != nil {
 		return nil, err
 	}
+
 	tp := tracesdk.NewTracerProvider(
-		tracesdk.WithBatcher(exp),
+		tracesdk.WithBatcher(jaegerOut),
 		tracesdk.WithResource(resource.NewWithAttributes(
 			semconv.SchemaURL,
 			semconv.ServiceNameKey.String("hedge"),
