@@ -7,14 +7,13 @@ require (
 	github.com/go-logr/logr v1.2.3
 	github.com/go-logr/zerologr v1.2.2
 	github.com/gorilla/mux v1.8.0
-	github.com/hashicorp/go-uuid v1.0.3
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/rs/zerolog v1.27.0
 	github.com/stretchr/testify v1.8.0
 	github.com/ulikunitz/xz v0.5.10
 	github.com/urfave/cli/v2 v2.11.1
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.33.0
-	go.opentelemetry.io/otel v1.9.0
+	go.opentelemetry.iometry.io/otel v1.9.0
+	go.opentele/contrib/instrumentation/net/http/otelhttp v0.33.0
 	go.opentelemetry.io/otel/exporters/jaeger v1.8.0
 	go.opentelemetry.io/otel/sdk v1.9.0
 	go.opentelemetry.io/otel/trace v1.9.0
