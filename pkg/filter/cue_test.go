@@ -21,7 +21,9 @@ func TestMatchesCue(t *testing.T) {
 		{pkg: TestPackage{Name: "foo"}, expected: true},
 		{pkg: TestPackage{Name: "bar"}, expected: false},
 		{pkg: TestPackage{Name: "foo", Deprecated: true}, expected: false},
-		{pkg: TestPackage{Name: "foo", Deprecated: true, Signature: &TestSignature{KeyFingerprint: "key1"}}, expected: false},
+		{pkg: TestPackage{Name: "foo", Signature: &TestSignature{KeyFingerprint: "key1"}}, expected: true},
+		{pkg: TestPackage{Name: "foo", Signature: &TestSignature{KeyFingerprint: "key2"}}, expected: true},
+		{pkg: TestPackage{Name: "foo", Signature: &TestSignature{KeyFingerprint: "key3"}}, expected: false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.pkg.Name, func(t *testing.T) {
@@ -34,5 +36,8 @@ func TestMatchesCue(t *testing.T) {
 
 func TestMatchesCue_ParseEarly(t *testing.T) {
 	_, err := filter.MatchesCue[TestPackage]("testdata/invalid.cue")
-	assert.EqualError(t, err, "expected label or ':', found 'IDENT' is")
+	assert.Error(t, err)
+
+	_, err = filter.MatchesCue[TestPackage]("testdata/empty.cue")
+	assert.Error(t, err)
 }

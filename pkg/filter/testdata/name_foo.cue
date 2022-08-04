@@ -1,9 +1,10 @@
-// Name must be foo
-Name: "foo"
+// name must be foo
+name: "foo"
 
-// Deprecated must be missing or false
-Deprecated: false
+// deprecated must be missing or false
+deprecated?: false
 
-Signature: {
-    KeyFingerprint: int
+// Signature must be missing (:thisisfine:) or signed by key1/key2
+signature?: {
+    keyFingerprint: "key1" | "key2"
 }

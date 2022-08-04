@@ -2,13 +2,14 @@ package filter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/load"
-	"cuelang.org/go/encoding/gocode/gocodec"
+	cuejson "cuelang.org/go/encoding/json"
 )
 
 func MatchesCue[T any](entrypoints ...string) (Predicate[T], error) {
@@ -26,20 +27,35 @@ func MatchesCue[T any](entrypoints ...string) (Predicate[T], error) {
 			return nil, err
 		}
 		values = append(values, val)
+
+		// Don't allow policies without any constraints, they unintentionally allow everything
+		if s, err := val.Struct(); err != nil {
+			return nil, err
+		} else if s.Len() == 0 {
+			return nil, fmt.Errorf("no constraints found in %s", i.BuildFiles[0].Filename)
+		}
 	}
-	codec := gocodec.New((*cue.Runtime)(ctx), nil)
+
+	// Don't allow predicates without policies, they unintentionally allow everything
+	if len(values) == 0 {
+		return nil, fmt.Errorf("no values loaded")
+	}
 
 	return func(ctx context.Context, pkg T) (bool, error) {
+		// Even though it's inefficient, JSON intermediates are grokable.
+		b, err := json.Marshal(pkg)
+		if err != nil {
+			return false, fmt.Errorf("json error: %w", err)
+		}
+
 		for _, val := range values {
-			if err := codec.Validate(val, pkg); err != nil {
+			if err := cuejson.Validate(b, val); err != nil {
 				var errs errors.Error
 				if errors.As(err, &errs) {
 					return false, nil
 				}
-
 				return false, err
 			}
-			fmt.Printf("passed %+v\n", val)
 		}
 		return true, nil
 	}, nil

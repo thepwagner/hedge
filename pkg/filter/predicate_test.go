@@ -10,13 +10,13 @@ import (
 )
 
 type TestPackage struct {
-	Name       string
-	Deprecated bool
-	Signature  *TestSignature
+	Name       string         `json:"name"`
+	Deprecated bool           `json:"deprecated,omitempty"`
+	Signature  *TestSignature `json:"signature,omitempty"`
 }
 
 type TestSignature struct {
-	KeyFingerprint string
+	KeyFingerprint string `json:"keyFingerprint"`
 }
 
 func (p TestPackage) GetName() string     { return p.Name }
