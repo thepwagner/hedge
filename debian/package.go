@@ -68,23 +68,6 @@ func PackageFromParagraph(graph Paragraph) (Package, error) {
 	return pkg, nil
 }
 
-func ParsePackages(in io.Reader) ([]Package, error) {
-	graphs, err := ParseControlFile(in)
-	if err != nil {
-		return nil, err
-	}
-
-	pkgs := make([]Package, 0, len(graphs))
-	for _, graph := range graphs {
-		pkg, err := PackageFromParagraph(graph)
-		if err != nil {
-			return nil, fmt.Errorf("parsing package: %w", err)
-		}
-		pkgs = append(pkgs, pkg)
-	}
-	return pkgs, nil
-}
-
 func WritePackages(out io.Writer, packages ...Package) error {
 	graphs := make([]Paragraph, 0, len(packages))
 	for _, pkg := range packages {

@@ -19,7 +19,7 @@ import (
 )
 
 func RunServer(log logr.Logger, cfg Config) error {
-	tp, err := newTracerProvider("http://192.168.1.23:14268/api/traces")
+	tp, err := newTracerProvider("http://riker.pwagner.net:14268/api/traces")
 	if err != nil {
 		return err
 	}

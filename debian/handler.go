@@ -56,7 +56,7 @@ func (h *Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 	ctx, span := h.tracer.Start(r.Context(), "debian.HandleInRelease")
 	defer span.End()
 	distName := mux.Vars(r)["dist"]
-	span.SetAttributes(attribute.String("dist", distName))
+	span.SetAttributes(attrDist.String(distName))
 
 	dist, ok := h.dists[distName]
 	if !ok {
@@ -76,7 +76,19 @@ func (h *Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "remote release not found", http.StatusInternalServerError)
 		return
 	}
-	span.SetAttributes(attribute.Int("component_count", len(packages)))
+	var components []string
+	var architectures []string
+	for comp, arches := range packages {
+		components = append(components, string(comp))
+
+		// Assume every component has the same architectures, use the first.
+		if len(architectures) == 0 {
+			for arch := range arches {
+				architectures = append(architectures, string(arch))
+			}
+		}
+	}
+	span.SetAttributes(attrComponents.StringSlice(components), attrArchitectures.StringSlice(architectures))
 
 	ctx, span = h.tracer.Start(ctx, "debian.clearSign")
 	defer span.End()
@@ -105,7 +117,7 @@ func (h *Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
 	defer span.End()
 	vars := mux.Vars(r)
 	distName := vars["dist"]
-	span.SetAttributes(attribute.String("dist", distName))
+	span.SetAttributes(attrDist.String(distName))
 
 	dist, ok := h.dists[distName]
 	if !ok {
@@ -114,10 +126,12 @@ func (h *Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	arch := Architecture(vars["arch"])
-	comp := Component(vars["comp"])
+	arch := vars["arch"]
+	comp := vars["comp"]
 	compression := FromExtension(vars["compression"])
-	pkgs, err := dist.release.LoadPackages(ctx, comp, arch)
+	span.SetAttributes(attrArchitecture.String(arch), attrComponent.String(comp), attribute.String("compression", string(compression)))
+
+	pkgs, err := dist.release.LoadPackages(ctx, Component(comp), Architecture(arch))
 	if err != nil {
 		span.RecordError(err)
 		http.Error(w, "error loading remote packages", http.StatusInternalServerError)
@@ -141,7 +155,7 @@ func (h *Handler) HandlePool(w http.ResponseWriter, r *http.Request) {
 	defer span.End()
 	vars := mux.Vars(r)
 	distName := vars["dist"]
-	span.SetAttributes(attribute.String("dist", distName))
+	span.SetAttributes(attrDist.String(distName))
 
 	dist, ok := h.dists[distName]
 	if !ok {

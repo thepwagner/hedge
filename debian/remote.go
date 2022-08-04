@@ -31,6 +31,7 @@ type RemoteLoader struct {
 	architectures []string
 	components    []string
 	packageFilter filter.Predicate[Package]
+	parser        PackageParser
 
 	releaseMu    sync.Mutex
 	releaseGraph Paragraph
@@ -66,8 +67,9 @@ func NewRemoteLoader(tp trace.TracerProvider, cfg UpstreamConfig, filters []Filt
 	}
 
 	tr := otelhttp.NewTransport(http.DefaultTransport, otelhttp.WithTracerProvider(tp))
+	tracer := tp.Tracer("hedge")
 	l := &RemoteLoader{
-		tracer:        tp.Tracer("hedge"),
+		tracer:        tracer,
 		baseURL:       baseURL,
 		keyring:       kr,
 		dist:          cfg.Release,
@@ -75,6 +77,7 @@ func NewRemoteLoader(tp trace.TracerProvider, cfg UpstreamConfig, filters []Filt
 		architectures: architectures,
 		components:    components,
 		packages:      map[Component]map[Architecture][]Package{},
+		parser:        PackageParser{tracer: tracer},
 	}
 
 	var predicates []filter.Predicate[Package]
@@ -102,7 +105,7 @@ func (r *RemoteLoader) BaseURL() string {
 }
 
 func (r *RemoteLoader) Load(ctx context.Context) (*Release, map[Component]map[Architecture][]Package, error) {
-	ctx, span := r.tracer.Start(ctx, "debian-loader.Load")
+	ctx, span := r.tracer.Start(ctx, "debianremote.Load")
 	defer span.End()
 
 	// Fetch the InRelease (clear-signed) file:
@@ -139,7 +142,7 @@ func (r *RemoteLoader) Load(ctx context.Context) (*Release, map[Component]map[Ar
 }
 
 func (r *RemoteLoader) fetchInRelease(ctx context.Context) (Paragraph, error) {
-	ctx, span := r.tracer.Start(ctx, "debian-loader.FetchInRelease")
+	ctx, span := r.tracer.Start(ctx, "debianremote.FetchInRelease")
 	defer span.End()
 
 	r.releaseMu.Lock()
@@ -174,7 +177,7 @@ func (r *RemoteLoader) fetchInRelease(ctx context.Context) (Paragraph, error) {
 }
 
 func (r *RemoteLoader) LoadPackages(ctx context.Context, comp Component, arch Architecture) ([]Package, error) {
-	ctx, span := r.tracer.Start(ctx, "debian-loader.LoadPackages")
+	ctx, span := r.tracer.Start(ctx, "debianremote.LoadPackages")
 	defer span.End()
 	span.SetAttributes(attribute.String("component", string(comp)), attribute.String("architecture", string(arch)))
 
@@ -215,20 +218,16 @@ func (r *RemoteLoader) LoadPackages(ctx context.Context, comp Component, arch Ar
 		return nil, fmt.Errorf("expected digest %s, got %s", expectedDigest, digest)
 	}
 
-	_, parseSpan := r.tracer.Start(ctx, "debian-loader.LoadPackages.Parse")
 	gzr, err := gzip.NewReader(bytes.NewReader(b))
 	if err != nil {
-		parseSpan.End()
 		return nil, err
 	}
-	pkgs, err := ParsePackages(gzr)
+	pkgs, err := r.parser.ParsePackages(ctx, gzr)
 	if err != nil {
-		parseSpan.End()
 		return nil, err
 	}
-	parseSpan.End()
 
-	_, filterSpan := r.tracer.Start(ctx, "debian-loader.LoadPackages.Filter")
+	_, filterSpan := r.tracer.Start(ctx, "debianremote.LoadPackages.Filter")
 	var filteredCount int
 	mapped := make([]Package, 0, len(pkgs))
 	for _, pkg := range pkgs {
@@ -245,7 +244,7 @@ func (r *RemoteLoader) LoadPackages(ctx context.Context, comp Component, arch Ar
 		mapped = append(mapped, pkg)
 	}
 	filterSpan.End()
-	span.SetAttributes(attribute.Int("package_count", len(mapped)), attribute.Int("filtered_count", filteredCount))
+	span.SetAttributes(attrPackageCount.Int(len(mapped)), attribute.Int("filtered_count", filteredCount))
 
 	r.packagesMu.Lock()
 	defer r.packagesMu.Unlock()
