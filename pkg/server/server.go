@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/thepwagner/hedge/debian"
 	"github.com/thepwagner/hedge/pkg/npm"
+	"github.com/thepwagner/hedge/pkg/observability"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/jaeger"
@@ -23,6 +24,8 @@ func RunServer(log logr.Logger, cfg Config) error {
 		return err
 	}
 	otel.SetTracerProvider(tp)
+	client := observability.NewHTTPClient(tp)
+	tracer := tp.Tracer("hedge")
 
 	r := mux.NewRouter()
 	if len(cfg.Debian) > 0 {
@@ -36,7 +39,7 @@ func RunServer(log logr.Logger, cfg Config) error {
 
 	if len(cfg.NPM) > 0 {
 		log.V(1).Info("enabled NPM support", "npm", len(cfg.NPM))
-		h, err := npm.NewHandler(tp, cfg.NPM)
+		h, err := npm.NewHandler(tracer, client, cfg.NPM)
 		if err != nil {
 			return err
 		}

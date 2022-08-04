@@ -14,21 +14,25 @@ import (
 
 type Handler struct {
 	tracer trace.Tracer
-	dists  map[string]distHandler
+	dists  map[string]PackageLoader
 }
 
-func NewHandler(tp trace.TracerProvider, repos map[string]*RepositoryConfig) (*Handler, error) {
-	dists := make(map[string]distHandler, len(repos))
+type PackageLoader interface {
+	GetPackage(ctx context.Context, pkg string) (*Package, error)
+}
+
+func NewHandler(tracer trace.Tracer, client *http.Client, repos map[string]*RepositoryConfig) (*Handler, error) {
+	dists := make(map[string]PackageLoader, len(repos))
 	for name, cfg := range repos {
-		dh, err := newDistHandler(tp, cfg)
+		dl, err := newDistLoader(tracer, client, cfg)
 		if err != nil {
 			return nil, err
 		}
-		dists[name] = *dh
+		dists[name] = dl
 	}
 
 	return &Handler{
-		tracer: tp.Tracer("hedge"),
+		tracer: tracer,
 		dists:  dists,
 	}, nil
 }
@@ -38,61 +42,39 @@ func (h *Handler) Register(r *mux.Router) {
 }
 
 func (h *Handler) GetPackageDetails(w http.ResponseWriter, r *http.Request) {
-	ctx, span := h.tracer.Start(r.Context(), "npm.GetPackageDetails")
+	ctx, span := h.tracer.Start(r.Context(), "debian.HandleInRelease")
 	defer span.End()
-	r = r.WithContext(ctx)
+	vars := mux.Vars(r)
+	distName := vars["dist"]
+	pkgName := vars["package"]
+	span.SetAttributes(attribute.String("dist", distName), attribute.String("package", pkgName))
 
-	distName := mux.Vars(r)["dist"]
-	dist, ok := h.dists[distName]
+	distLoader, ok := h.dists[distName]
 	if !ok {
+		span.SetStatus(codes.Error, "dist not found")
 		http.Error(w, "dist not found", http.StatusNotFound)
 		return
 	}
-	dist.GetPackageDetails(w, r)
-}
 
-type PackageLoader interface {
-	GetPackage(ctx context.Context, pkg string) (*Package, error)
-}
-
-type distHandler struct {
-	tracer trace.Tracer
-	loader PackageLoader
-}
-
-func newDistHandler(tp trace.TracerProvider, cfg *RepositoryConfig) (*distHandler, error) {
-	var loader PackageLoader
-	if upCfg := cfg.Source.Upstream; upCfg != nil {
-		loader = NewRemoteLoader(tp, cfg.Source.Upstream.URL)
-	} else {
-		return nil, fmt.Errorf("no package sources")
-	}
-
-	tracer := tp.Tracer("hedge")
-	loader, err := NewPackageFilter(tracer, loader, cfg.Filters...)
+	pkg, err := distLoader.GetPackage(ctx, pkgName)
 	if err != nil {
-		return nil, err
-	}
-
-	return &distHandler{
-		tracer: tracer,
-		loader: loader,
-	}, nil
-}
-
-func (dh *distHandler) GetPackageDetails(w http.ResponseWriter, r *http.Request) {
-	ctx, span := dh.tracer.Start(r.Context(), "GetPackageDetails")
-	defer span.End()
-
-	pkgName := mux.Vars(r)["package"]
-	span.SetAttributes(attribute.String("package", pkgName))
-
-	pkg, err := dh.loader.GetPackage(ctx, pkgName)
-	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
+		span.RecordError(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(pkg)
+	if err := json.NewEncoder(w).Encode(pkg); err != nil {
+		span.RecordError(err)
+	}
+}
+
+func newDistLoader(tracer trace.Tracer, client *http.Client, cfg *RepositoryConfig) (PackageLoader, error) {
+	var loader PackageLoader
+	if upCfg := cfg.Source.Upstream; upCfg != nil {
+		loader = NewRemoteLoader(tracer, client, cfg.Source.Upstream.URL)
+	} else {
+		return nil, fmt.Errorf("no package sources")
+	}
+
+	return NewPackageFilter(tracer, loader, cfg.Filters...)
 }

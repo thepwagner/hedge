@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -16,19 +15,16 @@ type RemoteLoader struct {
 
 var _ PackageLoader = (*RemoteLoader)(nil)
 
-func NewRemoteLoader(tp trace.TracerProvider, baseURL string) *RemoteLoader {
-	tr := otelhttp.NewTransport(http.DefaultTransport, otelhttp.WithTracerProvider(tp))
+func NewRemoteLoader(tracer trace.Tracer, client *http.Client, baseURL string) *RemoteLoader {
 	return &RemoteLoader{
-		tracer:  tp.Tracer("hedge"),
+		tracer:  tracer,
+		client:  client,
 		baseURL: baseURL,
-		client: &http.Client{
-			Transport: tr,
-		},
 	}
 }
 
 func (l *RemoteLoader) GetPackage(ctx context.Context, pkg string) (*Package, error) {
-	ctx, span := l.tracer.Start(ctx, "npm-loader.GetPackage")
+	ctx, span := l.tracer.Start(ctx, "loader.GetPackage")
 	defer span.End()
 
 	req, err := http.NewRequest("GET", l.baseURL+pkg, nil)

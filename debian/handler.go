@@ -34,11 +34,11 @@ type ReleaseLoader interface {
 func NewHandler(tp trace.TracerProvider, repos map[string]*RepositoryConfig) (*Handler, error) {
 	dists := make(map[string]distConfig, len(repos))
 	for name, cfg := range repos {
-		dh, err := newDistConfig(tp, cfg)
+		dc, err := newDistConfig(tp, cfg)
 		if err != nil {
 			return nil, err
 		}
-		dists[name] = *dh
+		dists[name] = *dc
 	}
 	return &Handler{
 		tracer: tp.Tracer("hedge"),
@@ -162,7 +162,7 @@ func newDistConfig(tp trace.TracerProvider, cfg *RepositoryConfig) (*distConfig,
 	}
 	key, err := ReadArmoredKeyRingFile(cfg.Key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading key: %w", err)
 	}
 
 	var release ReleaseLoader
