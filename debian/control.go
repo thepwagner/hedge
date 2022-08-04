@@ -2,7 +2,6 @@ package debian
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -22,14 +21,9 @@ func ParseControlFile(in io.Reader) ([]Paragraph, error) {
 
 	currentGraph := Paragraph{}
 	var lastKey string
-	for bufReader := bufio.NewReader(in); ; {
-		line, err := bufReader.ReadString('\n')
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if len(line) > 0 {
-			line = line[:len(line)-1]
-		}
+	scanner := bufio.NewScanner(in)
+	for scanner.Scan() {
+		line := scanner.Text()
 
 		// Handle paragraph split:
 		if len(line) == 0 && len(currentGraph) > 0 {

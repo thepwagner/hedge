@@ -37,6 +37,6 @@ func TestParsePackage(t *testing.T) {
 	for _, v := range p.Versions {
 		expectations, ok := expectedVersions[v.Version]
 		require.Truef(t, ok, "expected version not found: %s", v.Version)
-		assert.Equal(t, expectations.deprecated, v.Deprecated(), v.Version)
+		assert.Equal(t, expectations.deprecated, v.GetDeprecated(), v.Version)
 	}
 }

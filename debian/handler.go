@@ -3,37 +3,45 @@ package debian
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"github.com/go-logr/logr"
 	"github.com/gorilla/mux"
-	"github.com/thepwagner/hedge/pkg/observability"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
 // Handler implements https://wiki.debian.org/DebianRepository/Format
 type Handler struct {
-	log    logr.Logger
 	tracer trace.Tracer
-	dists  map[string]distHandler
+	dists  map[string]distConfig
 }
 
-func NewHandler(log logr.Logger, tp trace.TracerProvider, repos map[string]*RepositoryConfig) (*Handler, error) {
-	dists := make(map[string]distHandler, len(repos))
+type distConfig struct {
+	pk      *packet.PrivateKey
+	release ReleaseLoader
+}
+
+type ReleaseLoader interface {
+	BaseURL() string
+	Load(context.Context) (*Release, map[Component]map[Architecture][]Package, error)
+	LoadPackages(ctx context.Context, comp Component, arch Architecture) ([]Package, error)
+}
+
+func NewHandler(tp trace.TracerProvider, repos map[string]*RepositoryConfig) (*Handler, error) {
+	dists := make(map[string]distConfig, len(repos))
 	for name, cfg := range repos {
-		dh, err := newDistHandler(log, tp, cfg)
+		dh, err := newDistConfig(tp, cfg)
 		if err != nil {
 			return nil, err
 		}
 		dists[name] = *dh
 	}
 	return &Handler{
-		log:    log.WithName("debian.Handler"),
 		tracer: tp.Tracer("hedge"),
 		dists:  dists,
 	}, nil
@@ -48,73 +56,119 @@ func (h *Handler) Register(r *mux.Router) {
 func (h *Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 	ctx, span := h.tracer.Start(r.Context(), "debian.HandleInRelease")
 	defer span.End()
-	r = r.WithContext(ctx)
-
 	distName := mux.Vars(r)["dist"]
+	span.SetAttributes(attribute.String("dist", distName))
+
 	dist, ok := h.dists[distName]
 	if !ok {
-		h.log.Info("dist not found", "dist", distName)
+		span.SetStatus(codes.Error, "dist not found")
 		http.Error(w, "dist not found", http.StatusNotFound)
 		return
 	}
-	dist.HandleInRelease(w, r)
+
+	release, packages, err := dist.release.Load(ctx)
+	if err != nil {
+		span.RecordError(err)
+		http.Error(w, "error loading remote release", http.StatusInternalServerError)
+		return
+	}
+	if release == nil {
+		span.SetStatus(codes.Error, "remote release not found")
+		http.Error(w, "remote release not found", http.StatusInternalServerError)
+		return
+	}
+	span.SetAttributes(attribute.Int("component_count", len(packages)))
+
+	ctx, span = h.tracer.Start(ctx, "debian.clearSign")
+	defer span.End()
+	enc, err := clearsign.Encode(w, dist.pk, nil)
+	if err != nil {
+		span.RecordError(err)
+		http.Error(w, "error signing release data", http.StatusInternalServerError)
+		return
+	}
+	if err := WriteReleaseFile(ctx, *release, packages, enc); err != nil {
+		span.RecordError(err)
+		return
+	}
+	if err := enc.Close(); err != nil {
+		span.RecordError(err)
+		return
+	}
+	if _, err = fmt.Fprintln(w); err != nil {
+		span.RecordError(err)
+		return
+	}
 }
 
 func (h *Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
 	ctx, span := h.tracer.Start(r.Context(), "debian.HandlePackages")
 	defer span.End()
-	r = r.WithContext(ctx)
+	vars := mux.Vars(r)
+	distName := vars["dist"]
+	span.SetAttributes(attribute.String("dist", distName))
 
-	distName := mux.Vars(r)["dist"]
 	dist, ok := h.dists[distName]
 	if !ok {
-		h.log.Info("dist not found", "dist", distName)
+		span.SetStatus(codes.Error, "dist not found")
 		http.Error(w, "dist not found", http.StatusNotFound)
 		return
 	}
-	dist.HandlePackages(w, r)
+
+	arch := Architecture(vars["arch"])
+	comp := Component(vars["comp"])
+	compression := FromExtension(vars["compression"])
+	pkgs, err := dist.release.LoadPackages(ctx, comp, arch)
+	if err != nil {
+		span.RecordError(err)
+		http.Error(w, "error loading remote packages", http.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
+	if err := WritePackages(&buf, pkgs...); err != nil {
+		span.RecordError(err)
+		http.Error(w, "error writing package file", http.StatusInternalServerError)
+		return
+	}
+
+	if err := compression.Compress(w, &buf); err != nil {
+		span.RecordError(err)
+	}
 }
 
 func (h *Handler) HandlePool(w http.ResponseWriter, r *http.Request) {
 	ctx, span := h.tracer.Start(r.Context(), "debian.HandlePool")
 	defer span.End()
-	r = r.WithContext(ctx)
+	vars := mux.Vars(r)
+	distName := vars["dist"]
+	span.SetAttributes(attribute.String("dist", distName))
 
-	distName := mux.Vars(r)["dist"]
 	dist, ok := h.dists[distName]
 	if !ok {
-		h.log.Info("dist not found", "dist", distName)
+		span.SetStatus(codes.Error, "dist not found")
 		http.Error(w, "dist not found", http.StatusNotFound)
 		return
 	}
-	dist.HandlePool(w, r)
+
+	path := vars["path"]
+	url := dist.release.BaseURL() + "pool/" + path
+	r = r.WithContext(ctx)
+	http.Redirect(w, r, url, http.StatusMovedPermanently)
 }
 
-type ReleaseLoader interface {
-	BaseURL() string
-	Load(context.Context) (*Release, map[Component]map[Architecture][]Package, error)
-	LoadPackages(ctx context.Context, comp Component, arch Architecture) ([]Package, error)
-}
-
-type distHandler struct {
-	log     logr.Logger
-	tracer  trace.Tracer
-	pk      *packet.PrivateKey
-	release ReleaseLoader
-}
-
-func newDistHandler(log logr.Logger, tp trace.TracerProvider, cfg *RepositoryConfig) (*distHandler, error) {
+func newDistConfig(tp trace.TracerProvider, cfg *RepositoryConfig) (*distConfig, error) {
 	if cfg.Key == "" {
 		return nil, fmt.Errorf("missing key")
 	}
-	keyring, err := ReadArmoredKeyRingFile(cfg.Key)
+	key, err := ReadArmoredKeyRingFile(cfg.Key)
 	if err != nil {
 		return nil, err
 	}
 
 	var release ReleaseLoader
 	if upCfg := cfg.Source.Upstream; upCfg != nil {
-		release, err = NewRemoteLoader(log, tp, *cfg.Source.Upstream, cfg.Filters)
+		release, err = NewRemoteLoader(logr.Discard(), tp, *cfg.Source.Upstream, cfg.Filters)
 	} else {
 		return nil, fmt.Errorf("no source specified")
 	}
@@ -122,91 +176,8 @@ func newDistHandler(log logr.Logger, tp trace.TracerProvider, cfg *RepositoryCon
 		return nil, err
 	}
 
-	return &distHandler{
-		log:     log,
-		tracer:  tp.Tracer("hedge"),
-		pk:      keyring[0].PrivateKey,
+	return &distConfig{
+		pk:      key[0].PrivateKey,
 		release: release,
 	}, nil
-}
-
-func (dh *distHandler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	log := observability.Logger(ctx, dh.log)
-	log.V(1).Info("handling InRelease", "private_key", hex.EncodeToString(dh.pk.Fingerprint))
-
-	release, packages, err := dh.release.Load(ctx)
-	if err != nil {
-		log.Error(err, "release loading error")
-		http.Error(w, "dist not found", http.StatusNotFound)
-		return
-	}
-	if release == nil {
-		http.Error(w, "dist not found", http.StatusNotFound)
-		return
-	}
-
-	if err := dh.clearSign(ctx, w, func(ctx context.Context, out io.Writer) error {
-		return WriteReleaseFile(ctx, *release, packages, out)
-	}); err != nil {
-		log.Error(err, "writing signed release")
-		http.Error(w, "", http.StatusInternalServerError)
-		return
-	}
-}
-
-func (dh *distHandler) clearSign(ctx context.Context, out io.Writer, writer func(context.Context, io.Writer) error) error {
-	ctx, span := dh.tracer.Start(ctx, "debian.clearSign")
-	defer span.End()
-
-	enc, err := clearsign.Encode(out, dh.pk, nil)
-	if err != nil {
-		return err
-	}
-	if err := writer(ctx, enc); err != nil {
-		return err
-	}
-	if err := enc.Close(); err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(out)
-	return err
-}
-
-func (dh *distHandler) HandlePackages(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	arch := Architecture(vars["arch"])
-	comp := Component(vars["comp"])
-	compression := FromExtension(vars["compression"])
-	ctx := r.Context()
-
-	log := observability.Logger(ctx, dh.log)
-	log.V(1).Info("handling Packages", "arch", arch)
-
-	pkgs, err := dh.release.LoadPackages(ctx, comp, arch)
-	if err != nil {
-		log.Error(err, "loading packages")
-		http.Error(w, "", http.StatusInternalServerError)
-		return
-	}
-
-	var buf bytes.Buffer
-	if err := WritePackages(&buf, pkgs...); err != nil {
-		log.Error(err, "writing packages")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if err := compression.Compress(w, &buf); err != nil {
-		log.Error(err, "writing packages")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func (dh *distHandler) HandlePool(w http.ResponseWriter, r *http.Request) {
-	path := mux.Vars(r)["path"]
-	log := observability.Logger(r.Context(), dh.log)
-	log.V(1).Info("handling pool", "path", path)
-	url := dh.release.BaseURL() + "pool/" + path
-	http.Redirect(w, r, url, http.StatusMovedPermanently)
 }
