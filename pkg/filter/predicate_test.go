@@ -12,6 +12,11 @@ import (
 type TestPackage struct {
 	Name       string
 	Deprecated bool
+	Signature  *TestSignature
+}
+
+type TestSignature struct {
+	KeyFingerprint string
 }
 
 func (p TestPackage) GetName() string     { return p.Name }
