@@ -15,15 +15,13 @@ import (
 	"sync"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
-	"github.com/go-logr/logr"
 	"github.com/thepwagner/hedge/pkg/filter"
-	"github.com/thepwagner/hedge/pkg/observability"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
 type RemoteLoader struct {
-	log    logr.Logger
 	tracer trace.Tracer
 	client *http.Client
 
@@ -41,7 +39,7 @@ type RemoteLoader struct {
 	packages   map[Component]map[Architecture][]Package
 }
 
-func NewRemoteLoader(log logr.Logger, tp trace.TracerProvider, cfg UpstreamConfig, filters []FilterRule) (*RemoteLoader, error) {
+func NewRemoteLoader(tp trace.TracerProvider, cfg UpstreamConfig, filters []FilterRule) (*RemoteLoader, error) {
 	if cfg.Release == "" {
 		return nil, fmt.Errorf("missing release")
 	}
@@ -69,7 +67,6 @@ func NewRemoteLoader(log logr.Logger, tp trace.TracerProvider, cfg UpstreamConfi
 
 	tr := otelhttp.NewTransport(http.DefaultTransport, otelhttp.WithTracerProvider(tp))
 	l := &RemoteLoader{
-		log:           log.WithName("debian-loader").WithValues("release", cfg.Release),
 		tracer:        tp.Tracer("hedge"),
 		baseURL:       baseURL,
 		keyring:       kr,
@@ -97,8 +94,6 @@ func NewRemoteLoader(log logr.Logger, tp trace.TracerProvider, cfg UpstreamConfi
 		}
 	}
 	l.packageFilter = filter.AnyOf(predicates...)
-
-	l.log.Info("created remote debian loader", "base_url", l.baseURL, "architectures", l.architectures, "components", l.components, "filters", len(predicates))
 	return l, nil
 }
 
@@ -109,11 +104,9 @@ func (r *RemoteLoader) BaseURL() string {
 func (r *RemoteLoader) Load(ctx context.Context) (*Release, map[Component]map[Architecture][]Package, error) {
 	ctx, span := r.tracer.Start(ctx, "debian-loader.Load")
 	defer span.End()
-	log := observability.Logger(ctx, r.log).V(1)
-	log.Info("loading release")
 
 	// Fetch the InRelease (clear-signed) file:
-	releaseGraph, err := r.fetchInRelease(ctx, log)
+	releaseGraph, err := r.fetchInRelease(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -124,11 +117,9 @@ func (r *RemoteLoader) Load(ctx context.Context) (*Release, map[Component]map[Ar
 
 	// Overwrite from configuration:
 	if arch := strings.Join(r.architectures, " "); arch != release.ArchitecturesRaw {
-		log.Info("overwriting architectures", "old", release.ArchitecturesRaw, "new", arch)
 		release.ArchitecturesRaw = arch
 	}
 	if comp := strings.Join(r.components, " "); comp != release.ComponentsRaw {
-		log.Info("overwriting components", "old", release.ComponentsRaw, "new", comp)
 		release.ComponentsRaw = comp
 	}
 
@@ -147,14 +138,13 @@ func (r *RemoteLoader) Load(ctx context.Context) (*Release, map[Component]map[Ar
 	return release, pkgs, nil
 }
 
-func (r *RemoteLoader) fetchInRelease(ctx context.Context, log logr.Logger) (Paragraph, error) {
+func (r *RemoteLoader) fetchInRelease(ctx context.Context) (Paragraph, error) {
 	ctx, span := r.tracer.Start(ctx, "debian-loader.FetchInRelease")
 	defer span.End()
 
 	r.releaseMu.Lock()
 	defer r.releaseMu.Unlock()
 	if r.releaseGraph != nil {
-		log.Info("returning Release from cache")
 		return r.releaseGraph, nil
 	}
 
@@ -179,33 +169,28 @@ func (r *RemoteLoader) fetchInRelease(ctx context.Context, log logr.Logger) (Par
 	}
 
 	r.releaseGraph = graph
-	log.Info("fetched InRelease from remote", "bytes_count", len(b))
+	span.SetAttributes(attribute.Int("bytes_count", len(b)))
 	return graph, nil
 }
 
 func (r *RemoteLoader) LoadPackages(ctx context.Context, comp Component, arch Architecture) ([]Package, error) {
 	ctx, span := r.tracer.Start(ctx, "debian-loader.LoadPackages")
 	defer span.End()
-	log := observability.Logger(ctx, r.log).V(1).WithValues("arch", arch, "component", comp)
+	span.SetAttributes(attribute.String("component", string(comp)), attribute.String("architecture", string(arch)))
 
 	r.packagesMu.RLock()
 	if pkgsByArch, ok := r.packages[comp]; ok {
 		if pkgs, ok := pkgsByArch[arch]; ok {
 			r.packagesMu.RUnlock()
-			log.Info("returning packages from cache")
 			return pkgs, nil
 		}
 	}
 	r.packagesMu.RUnlock()
-
-	log.Info("fetching Packages")
-
 	fn := fmt.Sprintf("%s/binary-%s/Packages.gz", comp, arch)
-	expectedDigest, expectedSize, err := r.fileMetadata(ctx, log, fn)
+	expectedDigest, expectedSize, err := r.fileMetadata(ctx, fn)
 	if err != nil {
 		return nil, err
 	}
-	log.Info("found expected digest and size", "digest", expectedDigest, "size", expectedSize)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", r.baseURL+"/dists/"+r.dist+"/"+fn, nil)
 	if err != nil {
@@ -229,7 +214,6 @@ func (r *RemoteLoader) LoadPackages(ctx context.Context, comp Component, arch Ar
 	if digest := hex.EncodeToString(actualDigest[:]); digest != expectedDigest {
 		return nil, fmt.Errorf("expected digest %s, got %s", expectedDigest, digest)
 	}
-	log.Info("verified expected digest and size")
 
 	_, parseSpan := r.tracer.Start(ctx, "debian-loader.LoadPackages.Parse")
 	gzr, err := gzip.NewReader(bytes.NewReader(b))
@@ -261,8 +245,7 @@ func (r *RemoteLoader) LoadPackages(ctx context.Context, comp Component, arch Ar
 		mapped = append(mapped, pkg)
 	}
 	filterSpan.End()
-
-	log.Info("parsed packages", "package_count", len(mapped), "filtered_count", filteredCount)
+	span.SetAttributes(attribute.Int("package_count", len(mapped)), attribute.Int("filtered_count", filteredCount))
 
 	r.packagesMu.Lock()
 	defer r.packagesMu.Unlock()
@@ -277,8 +260,8 @@ func (r *RemoteLoader) LoadPackages(ctx context.Context, comp Component, arch Ar
 
 var digestRE = regexp.MustCompile(`([0-9a-f]{64})\s+([0-9]+)\s+([^ ]+)$`)
 
-func (r *RemoteLoader) fileMetadata(ctx context.Context, log logr.Logger, fn string) (string, int, error) {
-	rg, err := r.fetchInRelease(ctx, log)
+func (r *RemoteLoader) fileMetadata(ctx context.Context, fn string) (string, int, error) {
+	rg, err := r.fetchInRelease(ctx)
 	if err != nil {
 		return "", 0, err
 	}

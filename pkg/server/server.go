@@ -9,7 +9,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/thepwagner/hedge/debian"
 	"github.com/thepwagner/hedge/pkg/npm"
-	"github.com/thepwagner/hedge/pkg/observability"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/jaeger"
@@ -46,7 +45,7 @@ func RunServer(log logr.Logger, cfg Config) error {
 
 	srv := &http.Server{
 		Addr:    cfg.Addr,
-		Handler: otelhttp.NewHandler(observability.NewLoggingHandler(log, r), "ServeHTTP", otelhttp.WithTracerProvider(tp)),
+		Handler: otelhttp.NewHandler(r, "ServeHTTP", otelhttp.WithTracerProvider(tp)),
 	}
 	log.Info("starting server", "addr", cfg.Addr)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

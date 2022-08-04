@@ -8,7 +8,6 @@ import (
 
 	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
-	"github.com/go-logr/logr"
 	"github.com/gorilla/mux"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -168,7 +167,7 @@ func newDistConfig(tp trace.TracerProvider, cfg *RepositoryConfig) (*distConfig,
 
 	var release ReleaseLoader
 	if upCfg := cfg.Source.Upstream; upCfg != nil {
-		release, err = NewRemoteLoader(logr.Discard(), tp, *cfg.Source.Upstream, cfg.Filters)
+		release, err = NewRemoteLoader(tp, *cfg.Source.Upstream, cfg.Filters)
 	} else {
 		return nil, fmt.Errorf("no source specified")
 	}
