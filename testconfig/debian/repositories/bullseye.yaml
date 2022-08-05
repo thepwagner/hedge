@@ -8,7 +8,7 @@ source:
       - all
       - amd64
     components:
-      - contrib
+      - main
     key: |-
       -----BEGIN PGP PUBLIC KEY BLOCK-----
 

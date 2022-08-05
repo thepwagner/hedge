@@ -1,8 +1,10 @@
 package npm
 
+import "github.com/thepwagner/hedge/pkg/filter"
+
 type RepositoryConfig struct {
-	Source  SourceConfig `yaml:"source"`
-	Filters []FilterRule
+	Source   SourceConfig     `yaml:"source"`
+	Policies filter.CueConfig `yaml:"policies"`
 
 	NameRaw string `yaml:"name"`
 	Key     string
@@ -19,11 +21,4 @@ type SourceConfig struct {
 // UpstreamConfig is an NPM repository acting as a source.
 type UpstreamConfig struct {
 	URL string
-}
-
-type FilterRule struct {
-	Name       string
-	Pattern    string
-	Deprecated *bool
-	Version    string
 }

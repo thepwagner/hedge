@@ -12,4 +12,7 @@ RUN mkdir -p /usr/local/share/keyrings && \
 RUN echo "deb [signed-by=/usr/local/share/keyrings/hedge-test.gpg] http://192.168.1.23:8080/debian bullseye main" > /etc/apt/sources.list
 RUN npm set registry http://192.168.1.23:8080/npm/stable
 
+COPY package.json /app/package.json
+WORKDIR /app
+
 ENTRYPOINT ["/bin/bash"]

@@ -39,7 +39,7 @@ func RunServer(log logr.Logger, cfg Config) error {
 
 	if len(cfg.NPM) > 0 {
 		log.V(1).Info("enabled NPM support", "npm", len(cfg.NPM))
-		h, err := npm.NewHandler(tracer, client, cfg.NPM)
+		h, err := npm.NewHandler(tracer, client, cfg.ConfigDir, cfg.NPM)
 		if err != nil {
 			return err
 		}

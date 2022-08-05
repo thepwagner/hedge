@@ -6,48 +6,33 @@ import (
 	"github.com/thepwagner/hedge/pkg/filter"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/mod/semver"
 )
+
+type PackageVersion struct {
+	Package *Package `json:"pkg"`
+	Version *Version `json:"version"`
+}
 
 type PackageFilter struct {
 	tracer trace.Tracer
 	loader PackageLoader
 
-	globalPackageFilter filter.Predicate[Package]
-	globalVersionFilter filter.Predicate[Version]
-
-	versionFiltersByPkg map[string][]filter.Predicate[Version]
+	filter filter.Predicate[PackageVersion]
 }
 
 var _ PackageLoader = (*PackageFilter)(nil)
 
-func NewPackageFilter(tracer trace.Tracer, wrapped PackageLoader, rules ...FilterRule) (*PackageFilter, error) {
-	var globalPackagePreds []filter.Predicate[Package]
-	var globalVersionPreds []filter.Predicate[Version]
-	for _, rule := range rules {
-		if rule.Pattern != "" {
-			predicate, err := filter.MatchesPattern[Package](rule.Pattern)
-			if err != nil {
-				return nil, err
-			}
-			globalPackagePreds = append(globalPackagePreds, predicate)
-		}
-
-		if rule.Deprecated != nil {
-			globalVersionPreds = append(globalVersionPreds, filter.MatchesDeprecated[Version](*rule.Deprecated))
-		}
+func NewPackageFilter(tracer trace.Tracer, wrapped PackageLoader, filter filter.Predicate[PackageVersion]) *PackageFilter {
+	return &PackageFilter{
+		tracer: tracer,
+		loader: wrapped,
+		filter: filter,
 	}
-
-	f := PackageFilter{
-		tracer:              tracer,
-		loader:              wrapped,
-		globalPackageFilter: filter.AnyOf(globalPackagePreds...),
-		globalVersionFilter: filter.AnyOf(globalVersionPreds...),
-	}
-	return &f, nil
 }
 
 func (f *PackageFilter) GetPackage(ctx context.Context, pkgName string) (*Package, error) {
-	ctx, span := f.tracer.Start(ctx, "npm-filter.GetPackage")
+	ctx, span := f.tracer.Start(ctx, "npmfilter.GetPackage")
 	defer span.End()
 	span.SetAttributes(attribute.String("npm.package", pkgName))
 
@@ -56,22 +41,58 @@ func (f *PackageFilter) GetPackage(ctx context.Context, pkgName string) (*Packag
 		return nil, err
 	}
 
-	allowed, err := f.globalPackageFilter(ctx, *pkg)
-	if err != nil {
-		return nil, err
-	}
-	if !allowed {
-		return nil, nil
-	}
-
-	allowedVersions, err := filter.FilterMap(ctx, filter.AnyOf(append(f.versionFiltersByPkg[pkgName], f.globalVersionFilter)...), pkg.Versions)
-	if err != nil {
-		return nil, err
+	allowedVersions := make(map[string]Version, len(pkg.Versions))
+	for version, versionData := range pkg.Versions {
+		allowed, err := f.filter(ctx, PackageVersion{
+			Package: pkg,
+			Version: &versionData,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if allowed {
+			allowedVersions[version] = versionData
+		}
 	}
 	if len(allowedVersions) == 0 {
 		return nil, nil
 	}
-	pkg.Versions = allowedVersions
 
+	// Delete any dates of filtered versions:
+	filteredTimes := make(map[string]string, len(allowedVersions))
+	for version, versionTime := range pkg.Times {
+		switch version {
+		case "created", "modified":
+			filteredTimes[version] = versionTime
+		default:
+			if _, ok := allowedVersions[version]; ok {
+				filteredTimes[version] = versionTime
+			}
+		}
+	}
+	pkg.Times = filteredTimes
+
+	// Update any missing references to the latest version
+	var versions []string
+	for version := range allowedVersions {
+		versions = append(versions, version)
+	}
+	semver.Sort(versions)
+	latestVersion := versions[len(versions)-1]
+
+	for dist, tag := range pkg.DistTags {
+		switch dist {
+		case "latest", "beta":
+		default:
+			continue
+		}
+
+		if _, ok := allowedVersions[tag]; !ok {
+			pkg.DistTags[dist] = latestVersion
+			pkg.Times[dist] = pkg.Times[latestVersion]
+		}
+	}
+
+	pkg.Versions = allowedVersions
 	return pkg, nil
 }

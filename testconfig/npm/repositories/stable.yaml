@@ -2,6 +2,6 @@ source:
   upstream:
     url: https://registry.npmjs.org/
 
-filters:
-  - pattern: .*
-  - deprecated: false
+policies:
+  anyOf:
+    - jquery.cue

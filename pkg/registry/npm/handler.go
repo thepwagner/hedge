@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 
 	"github.com/gorilla/mux"
+	"github.com/thepwagner/hedge/pkg/filter"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -21,10 +23,10 @@ type PackageLoader interface {
 	GetPackage(ctx context.Context, pkg string) (*Package, error)
 }
 
-func NewHandler(tracer trace.Tracer, client *http.Client, repos map[string]*RepositoryConfig) (*Handler, error) {
+func NewHandler(tracer trace.Tracer, client *http.Client, cfgDir string, repos map[string]*RepositoryConfig) (*Handler, error) {
 	dists := make(map[string]PackageLoader, len(repos))
 	for name, cfg := range repos {
-		dl, err := newDistLoader(tracer, client, cfg)
+		dl, err := newDistLoader(tracer, client, cfgDir, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -68,7 +70,7 @@ func (h *Handler) GetPackageDetails(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func newDistLoader(tracer trace.Tracer, client *http.Client, cfg *RepositoryConfig) (PackageLoader, error) {
+func newDistLoader(tracer trace.Tracer, client *http.Client, cfgDir string, cfg *RepositoryConfig) (PackageLoader, error) {
 	var loader PackageLoader
 	if upCfg := cfg.Source.Upstream; upCfg != nil {
 		loader = NewRemoteLoader(tracer, client, cfg.Source.Upstream.URL)
@@ -76,5 +78,9 @@ func newDistLoader(tracer trace.Tracer, client *http.Client, cfg *RepositoryConf
 		return nil, fmt.Errorf("no package sources")
 	}
 
-	return NewPackageFilter(tracer, loader, cfg.Filters...)
+	pred, err := filter.CueConfigToPredicate[PackageVersion](filepath.Join(cfgDir, "npm", "policies"), cfg.Policies)
+	if err != nil {
+		return nil, err
+	}
+	return NewPackageFilter(tracer, loader, pred), nil
 }
