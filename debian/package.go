@@ -11,21 +11,21 @@ import (
 )
 
 type Package struct {
-	Package          string `json:"name" mapstructure:"Package"`
+	Package          string `json:"name"`
 	Source           string `json:"source"`
 	Version          string `json:"version"`
-	InstalledSizeRaw string `mapstructure:"Installed-Size"`
+	InstalledSizeRaw string `json:"-" mapstructure:"Installed-Size"`
 	Maintainer       string `json:"maintainer"`
-	DependsRaw       string `mapstructure:"Depends"`
-	PreDepends       string `mapstructure:"Pre-Depends"`
+	DependsRaw       string `json:"-" mapstructure:"Depends"`
+	PreDepends       string `json:"-" mapstructure:"Pre-Depends"`
 	Section          string `json:"section"`
-	TagRaw           string `mapstructure:"Tag"`
+	TagRaw           string `json:"-" mapstructure:"Tag"`
 	Description      string `json:"description"`
 	Homepage         string `json:"homepage"`
 	Priority         string `json:"priority"`
 	Architecture     string `json:"architecture"`
 	Filename         string `json:"filename"`
-	SizeRaw          string `mapstructure:"Size"`
+	SizeRaw          string `json:"-" mapstructure:"Size"`
 	Sha256           string `json:"sha256"`
 }
 

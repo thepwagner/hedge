@@ -59,7 +59,7 @@ func TestParsePackages(t *testing.T) {
 		"uitoolkit::sdl",
 		"use::gameplaying",
 		"x11::application",
-	}, pkg.Tags)
+	}, pkg.Tags())
 	assert.Equal(t, "contrib/games", pkg.Section)
 	assert.Equal(t, "optional", pkg.Priority)
 	assert.Equal(t, "pool/contrib/a/alien-arena/alien-arena_7.66+dfsg-6_amd64.deb", pkg.Filename)
