@@ -135,7 +135,7 @@ func (h *Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var buf bytes.Buffer
-	if err := WritePackages(&buf, pkgs...); err != nil {
+	if err := WriteControlFile(&buf, pkgs...); err != nil {
 		span.RecordError(err)
 		http.Error(w, "error writing package file", http.StatusInternalServerError)
 		return

@@ -1,7 +1,6 @@
 package debian_test
 
 import (
-	"bytes"
 	"context"
 	"os"
 	"testing"
@@ -65,17 +64,4 @@ func TestParsePackages(t *testing.T) {
 	assert.Equal(t, "pool/contrib/a/alien-arena/alien-arena_7.66+dfsg-6_amd64.deb", pkg.Filename)
 	assert.Equal(t, 776388, pkg.Size())
 	assert.Equal(t, "3fcd4894851b100a4da3f05b94e13fd64e639b309fba4dda979052a422c31e8e", pkg.Sha256)
-}
-
-func TestWritePackages(t *testing.T) {
-	var buf bytes.Buffer
-	err := debian.WritePackages(&buf, debian.Package{
-		Package: "bash",
-		Version: "5.1-2+deb11u1",
-	})
-	require.NoError(t, err)
-
-	assert.Equal(t, `Package: bash
-Version: 5.1-2+deb11u1
-`, buf.String())
 }

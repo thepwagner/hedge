@@ -15,49 +15,63 @@ import (
 // Paragraph is a series of data fields.
 type Paragraph map[string]string
 
+type ToParagraph interface {
+	Paragraph() (Paragraph, error)
+}
+
+// malkovich, malkovich, malkovich
+func (p Paragraph) Paragraph() (Paragraph, error) { return p, nil }
+
+var keyValueRE = regexp.MustCompile(`^([^\s:]+):(.*)$`)
+
+// multilineKeys maintain newlines in their values.
+var multilineKeys = map[string]struct{}{
+	"MD5Sum": {},
+	"SHA256": {},
+}
+
 // ParseControlFile parses a Debian control file.
 func ParseControlFile(in io.Reader) ([]Paragraph, error) {
-	var paragraphs []Paragraph
-
+	var graphs []Paragraph
+	var currentKey string
 	currentGraph := Paragraph{}
-	var lastKey string
+
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 32*1024), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		// Handle paragraph split:
+		// An empty line indicates the end of the current paragraph:
 		if len(line) == 0 && len(currentGraph) > 0 {
-			paragraphs = append(paragraphs, currentGraph)
+			graphs = append(graphs, currentGraph)
 			currentGraph = Paragraph{}
-			lastKey = ""
+			currentKey = ""
 			continue
 		}
 
-		// Handle "^Key:" matches
-		m := debKeyValue.FindStringSubmatch(line)
-		if len(m) > 0 {
+		// A line that matches "Key: Value" is a new field (Value may be empty)
+		if m := keyValueRE.FindStringSubmatch(line); len(m) > 0 {
 			key := string(m[1])
-			lastKey = key
+			currentKey = key
 
 			val := strings.TrimSpace(string(m[2]))
 			currentGraph[key] = val
 			continue
 		}
 
-		// Handle values that span multiple lines
+		// A line that starts with a space or tab is a continuation of the current Value
+		// Some keys maintain newlines while others are treated as WordWrap.
 		if len(line) == 0 || (line[0] != ' ' && line[0] != '\t') {
 			continue
 		}
-		if _, ok := multilineKeys[lastKey]; ok {
-			// Special values where newlines matter:
+		if _, ok := multilineKeys[currentKey]; ok {
 			var prefix string
-			if len(currentGraph[lastKey]) > 0 {
+			if len(currentGraph[currentKey]) > 0 {
 				prefix = "\n"
 			}
-			currentGraph[lastKey] += prefix + strings.TrimSpace(string(line))
+			currentGraph[currentKey] += prefix + strings.TrimSpace(string(line))
 		} else {
-			currentGraph[lastKey] += string(line)
+			currentGraph[currentKey] += string(line)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -65,19 +79,27 @@ func ParseControlFile(in io.Reader) ([]Paragraph, error) {
 	}
 
 	if len(currentGraph) > 0 {
-		paragraphs = append(paragraphs, currentGraph)
+		graphs = append(graphs, currentGraph)
 	}
-
-	return paragraphs, nil
+	return graphs, nil
 }
 
 // WriteConfigFile writes a Debian control file.
-func WriteControlFile(out io.Writer, graphs ...Paragraph) error {
-	for i, graph := range graphs {
-		if i > 0 {
-			fmt.Fprintln(out)
+func WriteControlFile[P ToParagraph](out io.Writer, graphs ...P) error {
+	for i, toGraph := range graphs {
+		graph, err := toGraph.Paragraph()
+		if err != nil {
+			return fmt.Errorf("converting to paragraph: %w", err)
 		}
 
+		// Blank line after every paragraph as a separator (except the first)
+		if i > 0 {
+			if _, err := fmt.Fprintln(out); err != nil {
+				return fmt.Errorf("writing control file: %w", err)
+			}
+		}
+
+		// Sort the keys alphabetically, with exceptions for leading/trailing fields:
 		keys := make([]string, 0, len(graph))
 		for k := range graph {
 			keys = append(keys, k)
@@ -105,22 +127,21 @@ func WriteControlFile(out io.Writer, graphs ...Paragraph) error {
 			}
 
 			if _, ok := multilineKeys[k]; !ok {
-				fmt.Fprintf(out, "%s: %s\n", k, v)
+				if _, err := fmt.Fprintf(out, "%s: %s\n", k, v); err != nil {
+					return fmt.Errorf("writing single-line key: %w", err)
+				}
 				continue
 			}
 
-			fmt.Fprintf(out, "%s:\n", k)
+			if _, err := fmt.Fprintf(out, "%s:\n", k); err != nil {
+				return fmt.Errorf("writing multi-line key: %w", err)
+			}
 			for _, line := range strings.Split(v, "\n") {
-				fmt.Fprintf(out, " %s\n", line)
+				if _, err := fmt.Fprintf(out, " %s\n", line); err != nil {
+					return fmt.Errorf("writing multi-line value: %w", err)
+				}
 			}
 		}
 	}
 	return nil
-}
-
-var debKeyValue = regexp.MustCompile(`^([^\s:]+):(.*)$`)
-
-var multilineKeys = map[string]struct{}{
-	"MD5Sum": {},
-	"SHA256": {},
 }

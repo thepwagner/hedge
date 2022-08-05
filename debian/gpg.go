@@ -7,6 +7,7 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp"
 )
 
+// ReadArmoredKeyRingFile is opengpg.ReadArmoredKeyRing, from a file
 func ReadArmoredKeyRingFile(fn string) (openpgp.EntityList, error) {
 	f, err := os.Open(fn)
 	if err != nil {

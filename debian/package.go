@@ -3,7 +3,6 @@ package debian
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
 
@@ -80,16 +79,4 @@ func PackageFromParagraph(graph Paragraph) (Package, error) {
 		return pkg, fmt.Errorf("parsing package: %w", err)
 	}
 	return pkg, nil
-}
-
-func WritePackages(out io.Writer, packages ...Package) error {
-	graphs := make([]Paragraph, 0, len(packages))
-	for _, pkg := range packages {
-		graph, err := pkg.Paragraph()
-		if err != nil {
-			return err
-		}
-		graphs = append(graphs, graph)
-	}
-	return WriteControlFile(out, graphs...)
 }

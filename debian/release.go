@@ -102,23 +102,24 @@ func ParseReleaseFile(data []byte, key openpgp.EntityList) (Paragraph, error) {
 }
 
 func WriteReleaseFile(ctx context.Context, r Release, pkgs map[Architecture][]Package, w io.Writer) error {
+	// Conver the basic release to a Paragraph:
 	graph, err := r.Paragraph()
 	if err != nil {
 		return fmt.Errorf("creating paragraph: %w", err)
 	}
 
+	// Digest and render all Packages files:
 	var pkgDigests []PackagesDigest
 	for arch, packages := range pkgs {
-		archDigests, err := PackageHashes(ctx, arch, "main", packages...)
+		digests, err := PackageHashes(ctx, arch, "main", packages...)
 		if err != nil {
 			return fmt.Errorf("calculating package hashes: %w", err)
 		}
-		pkgDigests = append(pkgDigests, archDigests...)
+		pkgDigests = append(pkgDigests, digests...)
 	}
 	sort.Slice(pkgDigests, func(i, j int) bool {
 		return pkgDigests[i].Path < pkgDigests[j].Path
 	})
-
 	digests := make([]string, 0, len(pkgDigests))
 	for _, d := range pkgDigests {
 		digests = append(digests, fmt.Sprintf(" %x %d %s", d.Digest, d.Size, d.Path))
@@ -139,7 +140,7 @@ type PackagesDigest struct {
 
 func PackageHashes(ctx context.Context, arch Architecture, component Component, packages ...Package) ([]PackagesDigest, error) {
 	var buf strings.Builder
-	if err := WritePackages(&buf, packages...); err != nil {
+	if err := WriteControlFile(&buf, packages...); err != nil {
 		return nil, err
 	}
 	b := buf.String()
