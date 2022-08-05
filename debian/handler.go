@@ -29,8 +29,8 @@ type distConfig struct {
 
 type ReleaseLoader interface {
 	BaseURL() string
-	Load(context.Context) (*Release, map[Component]map[Architecture][]Package, error)
-	LoadPackages(ctx context.Context, comp Component, arch Architecture) ([]Package, error)
+	Load(context.Context) (*Release, map[Architecture][]Package, error)
+	LoadPackages(ctx context.Context, arch Architecture) ([]Package, error)
 }
 
 func NewHandler(tp trace.TracerProvider, cfgDir string, repos map[string]*RepositoryConfig) (*Handler, error) {
@@ -129,11 +129,10 @@ func (h *Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	arch := vars["arch"]
-	comp := vars["comp"]
 	compression := FromExtension(vars["compression"])
-	span.SetAttributes(attrArchitecture.String(arch), attrComponent.String(comp), attribute.String("compression", string(compression)))
+	span.SetAttributes(attrArchitecture.String(arch), attribute.String("compression", string(compression)))
 
-	pkgs, err := dist.release.LoadPackages(ctx, Component(comp), Architecture(arch))
+	pkgs, err := dist.release.LoadPackages(ctx, Architecture(arch))
 	if err != nil {
 		span.RecordError(err)
 		http.Error(w, "error loading remote packages", http.StatusInternalServerError)
@@ -188,7 +187,6 @@ func newDistConfig(tp trace.TracerProvider, cfgDir string, cfg *RepositoryConfig
 
 	var release ReleaseLoader
 	if upCfg := cfg.Source.Upstream; upCfg != nil {
-
 		release, err = NewRemoteLoader(tp, *cfg.Source.Upstream, pkgFilter)
 	} else {
 		return nil, fmt.Errorf("no source specified")

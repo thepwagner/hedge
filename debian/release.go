@@ -100,21 +100,19 @@ func ParseReleaseFile(data []byte, key openpgp.EntityList) (Paragraph, error) {
 	return graphs[0], nil
 }
 
-func WriteReleaseFile(ctx context.Context, r Release, pkgs map[Component]map[Architecture][]Package, w io.Writer) error {
+func WriteReleaseFile(ctx context.Context, r Release, pkgs map[Architecture][]Package, w io.Writer) error {
 	graph, err := r.Paragraph()
 	if err != nil {
 		return fmt.Errorf("creating paragraph: %w", err)
 	}
 
 	var pkgDigests []PackagesDigest
-	for component, archPkgs := range pkgs {
-		for arch, packages := range archPkgs {
-			archDigests, err := PackageHashes(ctx, arch, component, packages...)
-			if err != nil {
-				return fmt.Errorf("calculating package hashes: %w", err)
-			}
-			pkgDigests = append(pkgDigests, archDigests...)
+	for arch, packages := range pkgs {
+		archDigests, err := PackageHashes(ctx, arch, "main", packages...)
+		if err != nil {
+			return fmt.Errorf("calculating package hashes: %w", err)
 		}
+		pkgDigests = append(pkgDigests, archDigests...)
 	}
 	sort.Slice(pkgDigests, func(i, j int) bool {
 		return pkgDigests[i].Path < pkgDigests[j].Path

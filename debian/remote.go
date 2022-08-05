@@ -38,7 +38,7 @@ type RemoteLoader struct {
 	releaseGraph Paragraph
 
 	packagesMu sync.RWMutex
-	packages   map[Component]map[Architecture][]Package
+	packages   map[Architecture][]Package
 }
 
 func NewRemoteLoader(tp trace.TracerProvider, cfg UpstreamConfig, pkgFilter filter.Predicate[Package]) (*RemoteLoader, error) {
@@ -78,7 +78,7 @@ func NewRemoteLoader(tp trace.TracerProvider, cfg UpstreamConfig, pkgFilter filt
 		client:        &http.Client{Transport: tr},
 		architectures: architectures,
 		components:    components,
-		packages:      map[Component]map[Architecture][]Package{},
+		packages:      map[Architecture][]Package{},
 		parser:        PackageParser{tracer: tracer},
 	}
 	return l, nil
@@ -88,7 +88,7 @@ func (r *RemoteLoader) BaseURL() string {
 	return r.baseURL
 }
 
-func (r *RemoteLoader) Load(ctx context.Context) (*Release, map[Component]map[Architecture][]Package, error) {
+func (r *RemoteLoader) Load(ctx context.Context) (*Release, map[Architecture][]Package, error) {
 	ctx, span := r.tracer.Start(ctx, "debianremote.Load")
 	defer span.End()
 
@@ -110,19 +110,15 @@ func (r *RemoteLoader) Load(ctx context.Context) (*Release, map[Component]map[Ar
 		release.ComponentsRaw = comp
 	}
 
-	pkgs := map[Component]map[Architecture][]Package{}
-	for _, comp := range release.Components() {
-		compPkgs := map[Architecture][]Package{}
-		for _, arch := range release.Architectures() {
-			pkgs, err := r.LoadPackages(ctx, comp, arch)
-			if err != nil {
-				return nil, nil, err
-			}
-			compPkgs[arch] = pkgs
+	archPkgs := map[Architecture][]Package{}
+	for _, arch := range release.Architectures() {
+		pkgs, err := r.LoadPackages(ctx, arch)
+		if err != nil {
+			return nil, nil, err
 		}
-		pkgs[comp] = compPkgs
+		archPkgs[arch] = pkgs
 	}
-	return release, pkgs, nil
+	return release, archPkgs, nil
 }
 
 func (r *RemoteLoader) fetchInRelease(ctx context.Context) (Paragraph, error) {
@@ -160,85 +156,82 @@ func (r *RemoteLoader) fetchInRelease(ctx context.Context) (Paragraph, error) {
 	return graph, nil
 }
 
-func (r *RemoteLoader) LoadPackages(ctx context.Context, comp Component, arch Architecture) ([]Package, error) {
+func (r *RemoteLoader) LoadPackages(ctx context.Context, arch Architecture) ([]Package, error) {
 	ctx, span := r.tracer.Start(ctx, "debianremote.LoadPackages")
 	defer span.End()
-	span.SetAttributes(attribute.String("component", string(comp)), attribute.String("architecture", string(arch)))
+	span.SetAttributes(attrArchitecture.String(string(arch)))
 
 	r.packagesMu.RLock()
-	if pkgsByArch, ok := r.packages[comp]; ok {
-		if pkgs, ok := pkgsByArch[arch]; ok {
-			r.packagesMu.RUnlock()
-			return pkgs, nil
-		}
+	if pkgsByArch, ok := r.packages[arch]; ok {
+		r.packagesMu.RUnlock()
+		return pkgsByArch, nil
 	}
 	r.packagesMu.RUnlock()
-	fn := fmt.Sprintf("%s/binary-%s/Packages.gz", comp, arch)
-	expectedDigest, expectedSize, err := r.fileMetadata(ctx, fn)
-	if err != nil {
-		return nil, err
-	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", r.baseURL+"/dists/"+r.dist+"/"+fn, nil)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	resp, err := r.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	b, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(b) != expectedSize {
-		return nil, fmt.Errorf("expected %d bytes, got %d", expectedSize, len(b))
-	}
-	actualDigest := sha256.Sum256(b)
-	if digest := hex.EncodeToString(actualDigest[:]); digest != expectedDigest {
-		return nil, fmt.Errorf("expected digest %s, got %s", expectedDigest, digest)
-	}
-
-	gzr, err := gzip.NewReader(bytes.NewReader(b))
-	if err != nil {
-		return nil, err
-	}
-	pkgs, err := r.parser.ParsePackages(ctx, gzr)
-	if err != nil {
-		return nil, err
-	}
-
-	_, filterSpan := r.tracer.Start(ctx, "debianremote.LoadPackages.Filter")
-	var filteredCount int
-	mapped := make([]Package, 0, len(pkgs))
-	for _, pkg := range pkgs {
-		pkg.Filename = "dists/" + r.dist + "/" + pkg.Filename
-		if ok, err := r.pkgFilter(ctx, pkg); err != nil {
-			filterSpan.End()
+	var allPackages []Package
+	for _, comp := range r.components {
+		fn := fmt.Sprintf("%s/binary-%s/Packages.gz", comp, arch)
+		expectedDigest, expectedSize, err := r.fileMetadata(ctx, fn)
+		if err != nil {
 			return nil, err
-		} else if !ok {
-			filteredCount++
-			continue
 		}
 
-		mapped = append(mapped, pkg)
+		req, err := http.NewRequestWithContext(ctx, "GET", r.baseURL+"/dists/"+r.dist+"/"+fn, nil)
+		if err != nil {
+			return nil, err
+		}
+		req = req.WithContext(ctx)
+		resp, err := r.client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		b, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(b) != expectedSize {
+			return nil, fmt.Errorf("expected %d bytes, got %d", expectedSize, len(b))
+		}
+		actualDigest := sha256.Sum256(b)
+		if digest := hex.EncodeToString(actualDigest[:]); digest != expectedDigest {
+			return nil, fmt.Errorf("expected digest %s, got %s", expectedDigest, digest)
+		}
+
+		gzr, err := gzip.NewReader(bytes.NewReader(b))
+		if err != nil {
+			return nil, err
+		}
+		pkgs, err := r.parser.ParsePackages(ctx, gzr)
+		if err != nil {
+			return nil, err
+		}
+
+		_, filterSpan := r.tracer.Start(ctx, "debianremote.LoadPackages.Filter")
+		var filteredCount int
+		mapped := make([]Package, 0, len(pkgs))
+		for _, pkg := range pkgs {
+			pkg.Filename = "dists/" + r.dist + "/" + pkg.Filename
+			if ok, err := r.pkgFilter(ctx, pkg); err != nil {
+				filterSpan.End()
+				return nil, err
+			} else if !ok {
+				filteredCount++
+				continue
+			}
+
+			allPackages = append(allPackages, pkg)
+		}
+		filterSpan.SetAttributes(attrPackageCount.Int(len(mapped)), attribute.Int("filtered_count", filteredCount))
+		filterSpan.End()
+		span.SetAttributes(attrPackageCount.Int(len(mapped)), attribute.Int("filtered_count", filteredCount))
 	}
-	filterSpan.SetAttributes(attrPackageCount.Int(len(mapped)), attribute.Int("filtered_count", filteredCount))
-	filterSpan.End()
-	span.SetAttributes(attrPackageCount.Int(len(mapped)), attribute.Int("filtered_count", filteredCount))
 
 	r.packagesMu.Lock()
 	defer r.packagesMu.Unlock()
-	pkgsByArch, ok := r.packages[comp]
-	if !ok {
-		pkgsByArch = map[Architecture][]Package{}
-	}
-	pkgsByArch[arch] = mapped
-	r.packages[comp] = pkgsByArch
-	return mapped, nil
+	r.packages[arch] = allPackages
+	return allPackages, nil
 }
 
 var digestRE = regexp.MustCompile(`([0-9a-f]{64})\s+([0-9]+)\s+([^ ]+)$`)
