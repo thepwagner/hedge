@@ -30,7 +30,7 @@ func RunServer(log logr.Logger, cfg Config) error {
 	r := mux.NewRouter()
 	if len(cfg.Debian) > 0 {
 		log.V(1).Info("enabled debian support", "debian_repos", len(cfg.Debian))
-		h, err := debian.NewHandler(tp, cfg.ConfigDir, cfg.Debian)
+		h, err := debian.NewHandler(tracer, client, cfg.ConfigDir, cfg.Debian)
 		if err != nil {
 			return err
 		}

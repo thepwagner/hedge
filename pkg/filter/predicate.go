@@ -19,7 +19,7 @@ func AnyOf[T any](preds ...Predicate[T]) Predicate[T] {
 	}
 }
 
-func FilterSlice[P Predicate[T], T any](ctx context.Context, pred P, in ...T) ([]T, error) {
+func FilterSlice[T any](ctx context.Context, pred Predicate[T], in ...T) ([]T, error) {
 	result := make([]T, 0, len(in))
 	for _, t := range in {
 		ok, err := pred(ctx, t)

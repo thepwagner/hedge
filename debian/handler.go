@@ -2,7 +2,6 @@ package debian
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -23,27 +22,22 @@ type Handler struct {
 }
 
 type distConfig struct {
-	pk      *packet.PrivateKey
-	release ReleaseLoader
+	pk       *packet.PrivateKey
+	release  ReleaseLoader
+	packages PackagesLoader
 }
 
-type ReleaseLoader interface {
-	BaseURL() string
-	Load(context.Context) (*Release, map[Architecture][]Package, error)
-	LoadPackages(ctx context.Context, arch Architecture) ([]Package, error)
-}
-
-func NewHandler(tp trace.TracerProvider, cfgDir string, repos map[string]*RepositoryConfig) (*Handler, error) {
+func NewHandler(tracer trace.Tracer, client *http.Client, cfgDir string, repos map[string]*RepositoryConfig) (*Handler, error) {
 	dists := make(map[string]distConfig, len(repos))
 	for name, cfg := range repos {
-		dc, err := newDistConfig(tp, cfgDir, cfg)
+		dist, err := newDistConfig(tracer, client, cfgDir, cfg)
 		if err != nil {
 			return nil, err
 		}
-		dists[name] = *dc
+		dists[name] = *dist
 	}
 	return &Handler{
-		tracer: tp.Tracer("hedge"),
+		tracer: tracer,
 		dists:  dists,
 	}, nil
 }
@@ -67,7 +61,8 @@ func (h *Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	release, packages, err := dist.release.Load(ctx)
+	// Load the release metadata:
+	release, err := dist.release.Load(ctx)
 	if err != nil {
 		span.RecordError(err)
 		http.Error(w, "error loading remote release", http.StatusInternalServerError)
@@ -78,20 +73,20 @@ func (h *Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "remote release not found", http.StatusInternalServerError)
 		return
 	}
-	var components []string
-	var architectures []string
-	for comp, arches := range packages {
-		components = append(components, string(comp))
 
-		// Assume every component has the same architectures, use the first.
-		if len(architectures) == 0 {
-			for arch := range arches {
-				architectures = append(architectures, string(arch))
-			}
+	// The Release file contains hashes of all Packages files, so we need to load them:
+	packages := map[Architecture][]Package{}
+	for _, arch := range release.Architectures() {
+		pkgs, err := dist.packages.LoadPackages(ctx, arch)
+		if err != nil {
+			span.RecordError(err)
+			http.Error(w, "error loading remote packages", http.StatusInternalServerError)
+			return
 		}
+		packages[arch] = pkgs
 	}
-	span.SetAttributes(attrComponents.StringSlice(components), attrArchitectures.StringSlice(architectures))
 
+	// Write the signed InRelease file:
 	ctx, span = h.tracer.Start(ctx, "debian.clearSign")
 	defer span.End()
 	enc, err := clearsign.Encode(w, dist.pk, nil)
@@ -132,20 +127,19 @@ func (h *Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
 	compression := FromExtension(vars["compression"])
 	span.SetAttributes(attrArchitecture.String(arch), attribute.String("compression", string(compression)))
 
-	pkgs, err := dist.release.LoadPackages(ctx, Architecture(arch))
+	// Load and serve the packages list. The client expects this to match what HandleInRelease digested
+	pkgs, err := dist.packages.LoadPackages(ctx, Architecture(arch))
 	if err != nil {
 		span.RecordError(err)
 		http.Error(w, "error loading remote packages", http.StatusInternalServerError)
 		return
 	}
-
 	var buf bytes.Buffer
 	if err := WritePackages(&buf, pkgs...); err != nil {
 		span.RecordError(err)
 		http.Error(w, "error writing package file", http.StatusInternalServerError)
 		return
 	}
-
 	if err := compression.Compress(w, &buf); err != nil {
 		span.RecordError(err)
 	}
@@ -166,12 +160,13 @@ func (h *Handler) HandlePool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	path := vars["path"]
-	url := dist.release.BaseURL() + "pool/" + path
+	url := dist.packages.BaseURL() + "pool/" + path
 	r = r.WithContext(ctx)
 	http.Redirect(w, r, url, http.StatusMovedPermanently)
 }
 
-func newDistConfig(tp trace.TracerProvider, cfgDir string, cfg *RepositoryConfig) (*distConfig, error) {
+func newDistConfig(tracer trace.Tracer, client *http.Client, cfgDir string, cfg *RepositoryConfig) (*distConfig, error) {
+	// Load the private signing key
 	if cfg.KeyPath == "" {
 		return nil, fmt.Errorf("missing key")
 	}
@@ -180,14 +175,16 @@ func newDistConfig(tp trace.TracerProvider, cfgDir string, cfg *RepositoryConfig
 		return nil, fmt.Errorf("reading key: %w", err)
 	}
 
-	pkgFilter, err := filter.CueConfigToPredicate[Package](filepath.Join(cfgDir, "debian", "policies"), cfg.Policies)
-	if err != nil {
-		return nil, fmt.Errorf("parsing policies: %w", err)
-	}
-
+	// Start with a package source:
 	var release ReleaseLoader
+	var packages PackagesLoader
 	if upCfg := cfg.Source.Upstream; upCfg != nil {
-		release, err = NewRemoteLoader(tp, *cfg.Source.Upstream, pkgFilter)
+		var rpl *RemotePackagesLoader
+		release, rpl, err = NewRemoteLoader(tracer, client, *cfg.Source.Upstream)
+		packages = rpl
+		defer func() {
+			rpl.releases = release
+		}()
 	} else {
 		return nil, fmt.Errorf("no source specified")
 	}
@@ -195,8 +192,20 @@ func newDistConfig(tp trace.TracerProvider, cfgDir string, cfg *RepositoryConfig
 		return nil, err
 	}
 
+	// Apply the policies to filter packages from the source:
+	pkgFilter, err := filter.CueConfigToPredicate[Package](filepath.Join(cfgDir, "debian", "policies"), cfg.Policies)
+	if err != nil {
+		return nil, fmt.Errorf("parsing policies: %w", err)
+	}
+	packages = NewFilteredPackageLoader(packages, pkgFilter)
+
+	// TODO: freeze responses in-memory for lazy caching
+	release = freezeReleaseLoader(release)
+	packages = freezePackagesLoader(packages)
+
 	return &distConfig{
-		pk:      key[0].PrivateKey,
-		release: release,
+		pk:       key[0].PrivateKey,
+		release:  release,
+		packages: packages,
 	}, nil
 }

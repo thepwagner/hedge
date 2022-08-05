@@ -34,6 +34,7 @@ type Release struct {
 	Codename         string
 	Suite            string
 	Changelogs       string
+	SHA256           string
 }
 
 func (r Release) Date() time.Time {
