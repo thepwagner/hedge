@@ -5,10 +5,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path/filepath"
 
 	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"github.com/gorilla/mux"
+	"github.com/thepwagner/hedge/pkg/filter"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -31,10 +33,10 @@ type ReleaseLoader interface {
 	LoadPackages(ctx context.Context, comp Component, arch Architecture) ([]Package, error)
 }
 
-func NewHandler(tp trace.TracerProvider, repos map[string]*RepositoryConfig) (*Handler, error) {
+func NewHandler(tp trace.TracerProvider, cfgDir string, repos map[string]*RepositoryConfig) (*Handler, error) {
 	dists := make(map[string]distConfig, len(repos))
 	for name, cfg := range repos {
-		dc, err := newDistConfig(tp, cfg)
+		dc, err := newDistConfig(tp, cfgDir, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -170,18 +172,24 @@ func (h *Handler) HandlePool(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, url, http.StatusMovedPermanently)
 }
 
-func newDistConfig(tp trace.TracerProvider, cfg *RepositoryConfig) (*distConfig, error) {
-	if cfg.Key == "" {
+func newDistConfig(tp trace.TracerProvider, cfgDir string, cfg *RepositoryConfig) (*distConfig, error) {
+	if cfg.KeyPath == "" {
 		return nil, fmt.Errorf("missing key")
 	}
-	key, err := ReadArmoredKeyRingFile(cfg.Key)
+	key, err := ReadArmoredKeyRingFile(cfg.KeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading key: %w", err)
 	}
 
+	pkgFilter, err := filter.CueConfigToPredicate[Package](filepath.Join(cfgDir, "debian", "policies"), cfg.Policies)
+	if err != nil {
+		return nil, fmt.Errorf("parsing policies: %w", err)
+	}
+
 	var release ReleaseLoader
 	if upCfg := cfg.Source.Upstream; upCfg != nil {
-		release, err = NewRemoteLoader(tp, *cfg.Source.Upstream, cfg.Filters)
+
+		release, err = NewRemoteLoader(tp, *cfg.Source.Upstream, pkgFilter)
 	} else {
 		return nil, fmt.Errorf("no source specified")
 	}

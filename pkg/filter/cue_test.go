@@ -10,26 +10,65 @@ import (
 )
 
 func TestMatchesCue(t *testing.T) {
-	pred, err := filter.MatchesCue[TestPackage]("testdata/name_foo.cue")
-	require.NoError(t, err)
-
 	ctx := context.Background()
-	cases := []struct {
-		pkg      TestPackage
-		expected bool
+	cases := map[string]struct {
+		expectedSuccess []TestPackage
+		expectedFail    []TestPackage
 	}{
-		{pkg: TestPackage{Name: "foo"}, expected: true},
-		{pkg: TestPackage{Name: "bar"}, expected: false},
-		{pkg: TestPackage{Name: "foo", Deprecated: true}, expected: false},
-		{pkg: TestPackage{Name: "foo", Signature: &TestSignature{KeyFingerprint: "key1"}}, expected: true},
-		{pkg: TestPackage{Name: "foo", Signature: &TestSignature{KeyFingerprint: "key2"}}, expected: true},
-		{pkg: TestPackage{Name: "foo", Signature: &TestSignature{KeyFingerprint: "key3"}}, expected: false},
+		"testdata/name_foo.cue": {
+			expectedSuccess: []TestPackage{
+				{Name: "foo"},
+				{Name: "foo", Signature: &TestSignature{KeyFingerprint: "key1"}},
+				{Name: "foo", Signature: &TestSignature{KeyFingerprint: "key2"}},
+			},
+			expectedFail: []TestPackage{
+				{Name: "bar"},                   // name mismatch
+				{Name: "foo", Deprecated: true}, // deprecated
+				{Name: "foo", Signature: &TestSignature{KeyFingerprint: "key3"}}, // fingerprint mismatch
+			},
+		},
+		"testdata/package_group.cue": {
+			expectedSuccess: []TestPackage{
+				{Name: "test"},
+				{Name: "test-common"},
+				{Name: "dep1"},
+				{Name: "dep2"},
+			},
+			expectedFail: []TestPackage{
+				{Name: "test-tube"}, // does not match regex
+				{Name: "dep3"},      // not in the dep list
+			},
+		},
+		"testdata/tags.cue": {
+			expectedSuccess: []TestPackage{
+				{Name: "test", Tags: []string{"tag1", "tag2", "tag3", "tag4", "tag5"}},
+				{Name: "test", Tags: []string{"tag2", "tag4"}},
+			},
+			expectedFail: []TestPackage{
+				{Name: "test"},                         // no tags
+				{Name: "test", Tags: []string{"tag1"}}, // no relevant tags
+				{Name: "test", Tags: []string{"tag2"}}, // not both tags
+				{Name: "test", Tags: []string{"tag4"}}, // not both tags
+			},
+		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.pkg.Name, func(t *testing.T) {
-			actual, err := pred(ctx, tc.pkg)
+
+	for fn, tc := range cases {
+		t.Run(fn, func(t *testing.T) {
+			pred, err := filter.MatchesCue[TestPackage](fn)
 			require.NoError(t, err)
-			assert.Equal(t, tc.expected, actual)
+
+			for _, pkg := range tc.expectedSuccess {
+				actual, err := pred(ctx, pkg)
+				require.NoError(t, err)
+				assert.True(t, actual)
+			}
+
+			for i, pkg := range tc.expectedFail {
+				actual, err := pred(ctx, pkg)
+				require.NoError(t, err)
+				assert.False(t, actual, "failed case %d", i)
+			}
 		})
 	}
 }

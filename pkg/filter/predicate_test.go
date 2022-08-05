@@ -13,6 +13,7 @@ type TestPackage struct {
 	Name       string         `json:"name"`
 	Deprecated bool           `json:"deprecated,omitempty"`
 	Signature  *TestSignature `json:"signature,omitempty"`
+	Tags       []string       `json:"tags"`
 }
 
 type TestSignature struct {

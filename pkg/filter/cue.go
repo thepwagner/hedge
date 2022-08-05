@@ -19,7 +19,7 @@ func MatchesCue[T any](entrypoints ...string) (Predicate[T], error) {
 	var values []cue.Value
 	for _, i := range instances {
 		if err := i.Err; err != nil {
-			return nil, fmt.Errorf("failed to load %s: %w", i.BuildFiles[0].Filename, err)
+			return nil, fmt.Errorf("failed to load: %w", err)
 		}
 
 		val := ctx.BuildInstance(i)

@@ -22,6 +22,7 @@ func ParseControlFile(in io.Reader) ([]Paragraph, error) {
 	currentGraph := Paragraph{}
 	var lastKey string
 	scanner := bufio.NewScanner(in)
+	scanner.Buffer(make([]byte, 0, 32*1024), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 
@@ -58,6 +59,9 @@ func ParseControlFile(in io.Reader) ([]Paragraph, error) {
 		} else {
 			currentGraph[lastKey] += string(line)
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("reading file: %w", err)
 	}
 
 	if len(currentGraph) > 0 {

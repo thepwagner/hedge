@@ -1,6 +1,7 @@
 package debian
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -10,26 +11,39 @@ import (
 )
 
 type Package struct {
-	Package          string
-	Source           string
-	Version          string
+	Package          string `json:"name" mapstructure:"Package"`
+	Source           string `json:"source"`
+	Version          string `json:"version"`
 	InstalledSizeRaw string `mapstructure:"Installed-Size"`
-	Maintainer       string
+	Maintainer       string `json:"maintainer"`
 	DependsRaw       string `mapstructure:"Depends"`
-	PreDepends       string
-	Section          string
+	PreDepends       string `mapstructure:"Pre-Depends"`
+	Section          string `json:"section"`
 	TagRaw           string `mapstructure:"Tag"`
-	Description      string
-	Homepage         string
-	Priority         string
-	Architecture     string
-	Filename         string
+	Description      string `json:"description"`
+	Homepage         string `json:"homepage"`
+	Priority         string `json:"priority"`
+	Architecture     string `json:"architecture"`
+	Filename         string `json:"filename"`
 	SizeRaw          string `mapstructure:"Size"`
-	Sha256           string
+	Sha256           string `json:"sha256"`
 }
 
 func (p Package) GetName() string     { return p.Package }
 func (p Package) GetPriority() string { return p.Priority }
+
+func (p Package) MarshalJSON() ([]byte, error) {
+	type Alias Package
+	return json.Marshal(&struct {
+		*Alias
+		Depends []string `json:"depends"`
+		Tags    []string `json:"tags"`
+	}{
+		Tags:    p.Tags(),
+		Depends: p.Depends(),
+		Alias:   (*Alias)(&p),
+	})
+}
 
 func (p Package) Depends() []string {
 	return strings.Split(p.DependsRaw, ", ")

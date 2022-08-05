@@ -1,11 +1,13 @@
 package debian
 
+import "github.com/thepwagner/hedge/pkg/filter"
+
 type RepositoryConfig struct {
-	Source  SourceConfig `yaml:"source"`
-	Filters []FilterRule
+	Source   SourceConfig     `yaml:"source"`
+	Policies filter.CueConfig `yaml:"policies"`
 
 	NameRaw string `yaml:"name"`
-	Key     string
+	KeyPath string `yaml:"keyPath"`
 }
 
 func (c RepositoryConfig) Name() string         { return c.NameRaw }
@@ -23,11 +25,4 @@ type UpstreamConfig struct {
 	Release       string
 	Architectures []string
 	Components    []string
-}
-
-type FilterRule struct {
-	Priority string
-	Name     string
-	Pattern  string
-	Version  string
 }

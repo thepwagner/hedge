@@ -10,15 +10,18 @@ import (
 )
 
 type Config struct {
-	Addr string
+	Addr      string
+	ConfigDir string
 
 	Debian map[string]*debian.RepositoryConfig
 	NPM    map[string]*npm.RepositoryConfig
 }
 
 func LoadConfig(dir string) (*Config, error) {
-	var cfg Config
-	cfg.Addr = ":8080"
+	cfg := Config{
+		Addr:      ":8080",
+		ConfigDir: dir,
+	}
 
 	debs, err := config.LoadConfig[*debian.RepositoryConfig](filepath.Join(dir, "debian"))
 	if err != nil {

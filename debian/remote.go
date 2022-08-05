@@ -30,9 +30,10 @@ type RemoteLoader struct {
 	keyring       openpgp.EntityList
 	architectures []string
 	components    []string
-	packageFilter filter.Predicate[Package]
+	pkgFilter     filter.Predicate[Package]
 	parser        PackageParser
 
+	// TODO: move this caching to redis(?)
 	releaseMu    sync.Mutex
 	releaseGraph Paragraph
 
@@ -40,7 +41,7 @@ type RemoteLoader struct {
 	packages   map[Component]map[Architecture][]Package
 }
 
-func NewRemoteLoader(tp trace.TracerProvider, cfg UpstreamConfig, filters []FilterRule) (*RemoteLoader, error) {
+func NewRemoteLoader(tp trace.TracerProvider, cfg UpstreamConfig, pkgFilter filter.Predicate[Package]) (*RemoteLoader, error) {
 	if cfg.Release == "" {
 		return nil, fmt.Errorf("missing release")
 	}
@@ -48,7 +49,7 @@ func NewRemoteLoader(tp trace.TracerProvider, cfg UpstreamConfig, filters []Filt
 	if cfg.Key == "" {
 		return nil, fmt.Errorf("missing keyfile")
 	}
-	kr, err := ReadArmoredKeyRingFile(cfg.Key)
+	kr, err := openpgp.ReadArmoredKeyRing(strings.NewReader(cfg.Key))
 	if err != nil {
 		return nil, err
 	}
@@ -70,6 +71,7 @@ func NewRemoteLoader(tp trace.TracerProvider, cfg UpstreamConfig, filters []Filt
 	tracer := tp.Tracer("hedge")
 	l := &RemoteLoader{
 		tracer:        tracer,
+		pkgFilter:     pkgFilter,
 		baseURL:       baseURL,
 		keyring:       kr,
 		dist:          cfg.Release,
@@ -79,24 +81,6 @@ func NewRemoteLoader(tp trace.TracerProvider, cfg UpstreamConfig, filters []Filt
 		packages:      map[Component]map[Architecture][]Package{},
 		parser:        PackageParser{tracer: tracer},
 	}
-
-	var predicates []filter.Predicate[Package]
-	for _, f := range filters {
-		if f.Priority != "" {
-			predicates = append(predicates, filter.MatchesPriority[Package](f.Name))
-		}
-		if f.Name != "" {
-			predicates = append(predicates, filter.MatchesName[Package](f.Name))
-		}
-		if f.Pattern != "" {
-			predicate, err := filter.MatchesPattern[Package](f.Pattern)
-			if err != nil {
-				return nil, err
-			}
-			predicates = append(predicates, predicate)
-		}
-	}
-	l.packageFilter = filter.AnyOf(predicates...)
 	return l, nil
 }
 
@@ -232,8 +216,7 @@ func (r *RemoteLoader) LoadPackages(ctx context.Context, comp Component, arch Ar
 	mapped := make([]Package, 0, len(pkgs))
 	for _, pkg := range pkgs {
 		pkg.Filename = "dists/" + r.dist + "/" + pkg.Filename
-
-		if ok, err := r.packageFilter(ctx, pkg); err != nil {
+		if ok, err := r.pkgFilter(ctx, pkg); err != nil {
 			filterSpan.End()
 			return nil, err
 		} else if !ok {
@@ -243,6 +226,7 @@ func (r *RemoteLoader) LoadPackages(ctx context.Context, comp Component, arch Ar
 
 		mapped = append(mapped, pkg)
 	}
+	filterSpan.SetAttributes(attrPackageCount.Int(len(mapped)), attribute.Int("filtered_count", filteredCount))
 	filterSpan.End()
 	span.SetAttributes(attrPackageCount.Int(len(mapped)), attribute.Int("filtered_count", filteredCount))
 

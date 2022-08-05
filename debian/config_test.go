@@ -10,13 +10,13 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
-	cfgs, err := config.LoadConfig[*debian.RepositoryConfig]("testdata/config/rafal")
+	cfgs, err := config.LoadConfig[*debian.RepositoryConfig]("testdata/config")
 	require.NoError(t, err)
 	assert.Len(t, cfgs, 1)
 
-	cfg := cfgs["stable"]
-	assert.Equal(t, "stable", cfg.Name())
-	assert.Equal(t, "debian/dists/bullseye.gpg", cfg.Key)
+	cfg := cfgs["rafal"]
+	assert.Equal(t, "rafal", cfg.Name())
+	assert.Equal(t, "my-private-key.gpg", cfg.KeyPath)
 
 	require.NotNil(t, cfg.Source.Upstream)
 	assert.Equal(t, "https://debian.mirror.rafal.ca/debian/", cfg.Source.Upstream.URL)

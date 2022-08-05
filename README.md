@@ -1,4 +1,5 @@
 # hedge
+
 Proxying package registry and walled garden perimeter.
 
 What are we doing here?
@@ -10,6 +11,3 @@ What are we doing here?
 should the server be live, or rendering to static hosting?
 live initially, with the ability to render "planned"
 
-TODO:
-- PoC package metadata
-- tools to build the gitops layout from an upstream source

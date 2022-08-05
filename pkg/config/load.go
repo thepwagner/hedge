@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"io/ioutil"
 	"os"
-	"path"
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
@@ -18,7 +17,7 @@ type Named interface {
 }
 
 func LoadConfig[T Named](dir string) (map[string]T, error) {
-	files, err := ioutil.ReadDir(dir)
+	children, err := ioutil.ReadDir(filepath.Join(dir, "repositories"))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -26,17 +25,17 @@ func LoadConfig[T Named](dir string) (map[string]T, error) {
 		return nil, fmt.Errorf("listing config directory: %w", err)
 	}
 
-	configs := make(map[string]T, len(files))
-	for _, f := range files {
+	configs := make(map[string]T, len(children))
+	for _, f := range children {
 		if f.IsDir() {
 			continue
 		}
-		ext := path.Ext(f.Name())
+		ext := filepath.Ext(f.Name())
 		if ext != ".yaml" && ext != ".yml" {
 			continue
 		}
 
-		in, err := os.Open(filepath.Join(dir, f.Name()))
+		in, err := os.Open(filepath.Join(dir, "repositories", f.Name()))
 		if err != nil {
 			return nil, err
 		}

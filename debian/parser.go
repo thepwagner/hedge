@@ -12,6 +12,10 @@ type PackageParser struct {
 	tracer trace.Tracer
 }
 
+func NewPackageParser(tracer trace.Tracer) PackageParser {
+	return PackageParser{tracer: tracer}
+}
+
 func (p PackageParser) ParsePackages(ctx context.Context, in io.Reader) ([]Package, error) {
 	ctx, span := p.tracer.Start(ctx, "debianparser.ParsePackages")
 	defer span.End()

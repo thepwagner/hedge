@@ -2,12 +2,14 @@ package debian_test
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/thepwagner/hedge/debian"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestParsePackages(t *testing.T) {
@@ -15,7 +17,9 @@ func TestParsePackages(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
-	pkgs, err := debian.ParsePackages(f)
+	tracer := trace.NewNoopTracerProvider().Tracer("")
+	pp := debian.NewPackageParser(tracer)
+	pkgs, err := pp.ParsePackages(context.Background(), f)
 	require.NoError(t, err)
 	assert.Len(t, pkgs, 297)
 
@@ -55,7 +59,7 @@ func TestParsePackages(t *testing.T) {
 		"uitoolkit::sdl",
 		"use::gameplaying",
 		"x11::application",
-	}, pkg.Tags())
+	}, pkg.Tags)
 	assert.Equal(t, "contrib/games", pkg.Section)
 	assert.Equal(t, "optional", pkg.Priority)
 	assert.Equal(t, "pool/contrib/a/alien-arena/alien-arena_7.66+dfsg-6_amd64.deb", pkg.Filename)

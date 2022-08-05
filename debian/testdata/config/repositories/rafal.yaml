@@ -1,4 +1,4 @@
-key: debian/dists/bullseye.gpg
+keyPath: my-private-key.gpg
 
 source:
   upstream:
@@ -12,5 +12,7 @@ source:
       - main
       - contrib
       - non-free
-
-# config for filter
+    key: |-
+      -----BEGIN PGP PUBLIC KEY BLOCK-----
+      ...
+      -----END PGP PUBLIC KEY BLOCK-----
