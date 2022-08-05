@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -110,9 +109,6 @@ func (r *RemoteReleaseLoader) Load(ctx context.Context) (*Release, error) {
 }
 
 func (r *RemoteReleaseLoader) fetchInRelease(ctx context.Context) (Paragraph, error) {
-	ctx, span := r.tracer.Start(ctx, "debianremote.FetchInRelease")
-	defer span.End()
-
 	req, err := http.NewRequestWithContext(ctx, "GET", r.baseURL+"/dists/"+r.dist+"/InRelease", nil)
 	if err != nil {
 		return nil, err
@@ -133,7 +129,6 @@ func (r *RemoteReleaseLoader) fetchInRelease(ctx context.Context) (Paragraph, er
 		return nil, err
 	}
 
-	span.SetAttributes(attribute.Int("bytes_count", len(b)))
 	return graph, nil
 }
 
@@ -146,9 +141,19 @@ func (r *RemotePackagesLoader) LoadPackages(ctx context.Context, arch Architectu
 	defer span.End()
 	span.SetAttributes(attrArchitecture.String(string(arch)))
 
+	expectedDigests, err := r.fileMetadata(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	var allPackages []Package
 	for _, comp := range r.components {
-		b, err := r.fetchPackages(ctx, Component(comp), arch)
+		fn := fmt.Sprintf("%s/binary-%s/Packages.gz", comp, arch)
+		digest, ok := expectedDigests[fn]
+		if !ok {
+			return nil, fmt.Errorf("release is missing %s/%s", comp, arch)
+		}
+		b, err := r.fetchPackages(ctx, digest)
 		if err != nil {
 			return nil, err
 		}
@@ -168,39 +173,39 @@ func (r *RemotePackagesLoader) LoadPackages(ctx context.Context, arch Architectu
 
 var digestRE = regexp.MustCompile(`([0-9a-f]{64})\s+([0-9]+)\s+([^ ]+)$`)
 
-func (r *RemotePackagesLoader) fileMetadata(ctx context.Context, fn string) (string, int, error) {
+func (r *RemotePackagesLoader) fileMetadata(ctx context.Context) (map[string]PackagesDigest, error) {
 	release, err := r.releases.Load(ctx)
 	if err != nil {
-		return "", 0, err
+		return nil, err
 	}
-	for _, line := range strings.Split(release.SHA256, "\n") {
+	lines := strings.Split(release.SHA256, "\n")
+	digests := make(map[string]PackagesDigest, len(lines))
+	for _, line := range lines {
 		m := digestRE.FindStringSubmatch(line)
 		if len(m) == 0 {
 			continue
 		}
-		if m[3] != fn {
-			continue
-		}
+		path := m[3]
 		size, err := strconv.Atoi(m[2])
 		if err != nil {
-			return "", 0, fmt.Errorf("parsing expected size")
+			return nil, fmt.Errorf("parsing expected size: %w", err)
 		}
-		return m[1], size, nil
+		sha, err := hex.DecodeString(m[1])
+		if err != nil {
+			return nil, fmt.Errorf("parsing expected sha: %w", err)
+		}
+		digests[path] = PackagesDigest{
+			Path:   path,
+			Sha256: sha,
+			Size:   size,
+		}
 	}
-	return "", 0, fmt.Errorf("file not found: %w", err)
+
+	return digests, nil
 }
 
-func (r *RemotePackagesLoader) fetchPackages(ctx context.Context, comp Component, arch Architecture) ([]byte, error) {
-	ctx, span := r.tracer.Start(ctx, "debianremote.FetchPackages")
-	defer span.End()
-
-	fn := fmt.Sprintf("%s/binary-%s/Packages.gz", comp, arch)
-	expectedDigest, expectedSize, err := r.fileMetadata(ctx, fn)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "GET", r.baseURL+"/dists/"+r.dist+"/"+fn, nil)
+func (r *RemotePackagesLoader) fetchPackages(ctx context.Context, digest PackagesDigest) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", r.baseURL+"/dists/"+r.dist+"/"+digest.Path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -215,13 +220,11 @@ func (r *RemotePackagesLoader) fetchPackages(ctx context.Context, comp Component
 		return nil, err
 	}
 
-	if len(b) != expectedSize {
-		return nil, fmt.Errorf("expected %d bytes, got %d", expectedSize, len(b))
+	if len(b) != digest.Size {
+		return nil, fmt.Errorf("expected %d bytes, got %d", digest.Size, len(b))
 	}
-	actualDigest := sha256.Sum256(b)
-	if digest := hex.EncodeToString(actualDigest[:]); digest != expectedDigest {
-		return nil, fmt.Errorf("expected digest %s, got %s", expectedDigest, digest)
+	if actualDigest := sha256.Sum256(b); !bytes.Equal(actualDigest[:], digest.Sha256) {
+		return nil, fmt.Errorf("expected digest %x, got %x", digest.Sha256, actualDigest)
 	}
-
 	return b, nil
 }
