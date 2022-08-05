@@ -159,8 +159,9 @@ func (h *Handler) HandlePool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// https://github.com/golangci/golangci-lint/releases/download/v1.48.0/golangci-lint-1.48.0-linux-amd64.deb
 	path := vars["path"]
-	url := dist.packages.BaseURL() + "pool/" + path
+	url := dist.packages.BaseURL() + path
 	r = r.WithContext(ctx)
 	http.Redirect(w, r, url, http.StatusMovedPermanently)
 }
@@ -188,6 +189,9 @@ func newDistConfig(tracer trace.Tracer, client *http.Client, cfgDir string, cfg 
 		defer func() {
 			rpl.releases = release
 		}()
+	} else if ghCfg := cfg.Source.GitHub; ghCfg != nil {
+		release = &FixedReleaseLoader{release: ghCfg.Release}
+		packages = NewGitHubPackagesLoader(tracer, client, *cfg.Source.GitHub)
 	} else {
 		return nil, fmt.Errorf("no source specified")
 	}

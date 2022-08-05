@@ -1,10 +1,14 @@
 package debian
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
+	"github.com/blakesmith/ar"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -46,4 +50,46 @@ func (p PackageParser) ParsePackages(ctx context.Context, in io.Reader) ([]Packa
 	mapSpan.SetAttributes(attrPackageCount.Int(len(pkgs)))
 	span.SetAttributes(attrPackageCount.Int(len(pkgs)))
 	return pkgs, nil
+}
+
+func (p PackageParser) PackageFromDeb(ctx context.Context, in io.Reader) (*Package, error) {
+	for reader := ar.NewReader(in); ; {
+		hdr, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			return nil, fmt.Errorf("reading archive: %w", err)
+		}
+		if hdr.Name != "control.tar.gz" {
+			continue
+		}
+
+		gzR, err := gzip.NewReader(reader)
+		if err != nil {
+			return nil, fmt.Errorf("creating gzip reader: %w", err)
+		}
+		defer gzR.Close()
+
+		for tarR := tar.NewReader(gzR); ; {
+			hdr, err := tarR.Next()
+			if errors.Is(err, io.EOF) {
+				break
+			} else if err != nil {
+				return nil, fmt.Errorf("reading archive: %w", err)
+			}
+
+			if hdr.Name != "./control" {
+				continue
+			}
+
+			pkgs, err := p.ParsePackages(ctx, tarR)
+			if err != nil {
+				return nil, fmt.Errorf("parsing control file: %w", err)
+			}
+			if len(pkgs) == 1 {
+				return &pkgs[0], nil
+			}
+		}
+	}
+	return nil, nil
 }

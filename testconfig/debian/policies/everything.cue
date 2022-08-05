@@ -1,1 +1,1 @@
-name: =~"^alien.*$"
+name: string

@@ -25,6 +25,7 @@ type Package struct {
 	Architecture     string `json:"architecture"`
 	Filename         string `json:"filename"`
 	SizeRaw          string `json:"-" mapstructure:"Size"`
+	MD5Sum           string `json:"md5sum"`
 	Sha256           string `json:"sha256"`
 }
 

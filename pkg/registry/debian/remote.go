@@ -133,7 +133,7 @@ func (r *RemoteReleaseLoader) fetchInRelease(ctx context.Context) (Paragraph, er
 }
 
 func (r *RemotePackagesLoader) BaseURL() string {
-	return r.baseURL
+	return r.baseURL + "pool/"
 }
 
 func (r *RemotePackagesLoader) LoadPackages(ctx context.Context, arch Architecture) ([]Package, error) {

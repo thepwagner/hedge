@@ -25,15 +25,15 @@ type Component string
 
 // Release is metadata about a Debian version.
 type Release struct {
-	ComponentsRaw    string `mapstructure:"Components"`
-	ArchitecturesRaw string `mapstructure:"Architectures"`
+	ComponentsRaw    string `mapstructure:"Components" yaml:"components"`
+	ArchitecturesRaw string `mapstructure:"Architectures" yaml:"architectures"`
 	DateRaw          string `mapstructure:"Date"`
 	Description      string
-	Origin           string
+	Origin           string `yaml:"origin"`
 	Label            string
 	Version          string
-	Codename         string
-	Suite            string
+	Codename         string `yaml:"codename"`
+	Suite            string `yaml:"suite"`
 	Changelogs       string
 	SHA256           string
 }

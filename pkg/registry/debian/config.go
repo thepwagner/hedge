@@ -16,6 +16,7 @@ func (c *RepositoryConfig) SetName(name string) { c.NameRaw = name }
 // SourceConfig defines where packages are stored.
 type SourceConfig struct {
 	Upstream *UpstreamConfig
+	GitHub   *GitHubConfig
 }
 
 // UpstreamConfig is a Debian repository acting as a source.
@@ -25,4 +26,9 @@ type UpstreamConfig struct {
 	Release       string
 	Architectures []string
 	Components    []string
+}
+
+type GitHubConfig struct {
+	Release      Release
+	Repositories []string
 }

@@ -5,8 +5,10 @@ go 1.18
 require (
 	cuelang.org/go v0.4.3
 	github.com/ProtonMail/go-crypto v0.0.0-20220730123233-d6ffb7692adf
+	github.com/blakesmith/ar v0.0.0-20190502131153-809d4375e1fb
 	github.com/go-logr/logr v1.2.3
 	github.com/go-logr/zerologr v1.2.2
+	github.com/google/go-github/v45 v45.2.0
 	github.com/gorilla/mux v1.8.0
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/rs/zerolog v1.27.0
@@ -31,6 +33,7 @@ require (
 	github.com/felixge/httpsnoop v1.0.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b // indirect
+	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/uuid v1.2.0 // indirect
 	github.com/mattn/go-colorable v0.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.14 // indirect
