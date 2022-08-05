@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/thepwagner/hedge/pkg/npm"
+	"github.com/thepwagner/hedge/pkg/registry/npm"
 )
 
 func TestParsePackage(t *testing.T) {

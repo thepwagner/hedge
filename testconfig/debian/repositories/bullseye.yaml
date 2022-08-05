@@ -7,7 +7,6 @@ source:
     architectures:
       - all
       - amd64
-
     components:
       - contrib
     key: |-

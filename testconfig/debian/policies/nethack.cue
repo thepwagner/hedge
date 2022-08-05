@@ -1,5 +1,4 @@
-// Allow rogue-like games maintained by the official games team
-// Nethack and clones.
+// Allow rogue-like games maintained by the official games team (nethack and clones)
 
 import "list"
 

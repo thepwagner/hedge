@@ -7,9 +7,9 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/gorilla/mux"
-	"github.com/thepwagner/hedge/debian"
-	"github.com/thepwagner/hedge/pkg/npm"
 	"github.com/thepwagner/hedge/pkg/observability"
+	"github.com/thepwagner/hedge/pkg/registry/debian"
+	"github.com/thepwagner/hedge/pkg/registry/npm"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/jaeger"

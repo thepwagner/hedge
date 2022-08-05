@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/thepwagner/hedge/debian"
+	"github.com/thepwagner/hedge/pkg/registry/debian"
 )
 
 func TestParseControlFile(t *testing.T) {

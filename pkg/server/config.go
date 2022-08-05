@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/thepwagner/hedge/debian"
 	"github.com/thepwagner/hedge/pkg/config"
-	"github.com/thepwagner/hedge/pkg/npm"
+	"github.com/thepwagner/hedge/pkg/registry/debian"
+	"github.com/thepwagner/hedge/pkg/registry/npm"
 )
 
 type Config struct {
