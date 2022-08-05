@@ -3,6 +3,7 @@ package debian
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -120,11 +121,14 @@ func WriteReleaseFile(ctx context.Context, r Release, pkgs map[Architecture][]Pa
 	sort.Slice(pkgDigests, func(i, j int) bool {
 		return pkgDigests[i].Path < pkgDigests[j].Path
 	})
-	digests := make([]string, 0, len(pkgDigests))
+	shas := make([]string, 0, len(pkgDigests))
+	md5s := make([]string, 0, len(pkgDigests))
 	for _, d := range pkgDigests {
-		digests = append(digests, fmt.Sprintf(" %x %d %s", d.Digest, d.Size, d.Path))
+		shas = append(shas, fmt.Sprintf(" %x %d %s", d.Sha256, d.Size, d.Path))
+		md5s = append(md5s, fmt.Sprintf(" %x %d %s", d.Md5, d.Size, d.Path))
 	}
-	graph["SHA256"] = strings.Join(digests, "\n")
+	graph["SHA256"] = strings.Join(shas, "\n")
+	graph["MD5Sum"] = strings.Join(md5s, "\n")
 
 	if err := WriteControlFile(w, graph); err != nil {
 		return err
@@ -135,7 +139,8 @@ func WriteReleaseFile(ctx context.Context, r Release, pkgs map[Architecture][]Pa
 type PackagesDigest struct {
 	Path   string
 	Size   int
-	Digest []byte
+	Sha256 []byte
+	Md5    []byte
 }
 
 func PackageHashes(ctx context.Context, arch Architecture, component Component, packages ...Package) ([]PackagesDigest, error) {
@@ -143,20 +148,25 @@ func PackageHashes(ctx context.Context, arch Architecture, component Component, 
 	if err := WriteControlFile(&buf, packages...); err != nil {
 		return nil, err
 	}
-	b := buf.String()
+	pkgFile := buf.String()
 
+	// XZ compression is supported, but slooooow.
+	// Only use XZ if we are rendering the repository to the filesystem for static hosting.
 	var digests []PackagesDigest
 	for _, compression := range []Compression{CompressionNone, CompressionGZIP} {
 		var buf bytes.Buffer
-		if err := compression.Compress(&buf, strings.NewReader(b)); err != nil {
+		if err := compression.Compress(&buf, strings.NewReader(pkgFile)); err != nil {
 			return nil, err
 		}
-		size := buf.Len()
 		sha := sha256.Sum256(buf.Bytes())
+
+		// TODO: should we use MD5? It's nice to have some resistance to SHA-256 attacks... but it is MD5 🤡
+		md := md5.Sum(buf.Bytes())
 		digests = append(digests, PackagesDigest{
 			Path:   fmt.Sprintf("%s/binary-%s/Packages%s", component, arch, compression.Extension()),
-			Size:   size,
-			Digest: sha[:],
+			Size:   buf.Len(),
+			Sha256: sha[:],
+			Md5:    md[:],
 		})
 	}
 	return digests, nil

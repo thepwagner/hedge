@@ -197,7 +197,7 @@ func newDistConfig(tracer trace.Tracer, client *http.Client, cfgDir string, cfg 
 	if err != nil {
 		return nil, fmt.Errorf("parsing policies: %w", err)
 	}
-	packages = NewFilteredPackageLoader(packages, pkgFilter)
+	packages = NewFilteredPackageLoader(tracer, packages, pkgFilter)
 
 	// TODO: freeze responses in-memory for lazy caching
 	release = freezeReleaseLoader(release)

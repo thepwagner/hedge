@@ -117,6 +117,11 @@ func WriteControlFile[P ToParagraph](out io.Writer, graphs ...P) error {
 			} else if keyJ == "SHA256" {
 				return true
 			}
+			if keyI == "MD5Sum" {
+				return false
+			} else if keyJ == "MD5Sum" {
+				return true
+			}
 			return strings.Compare(keys[i], keys[j]) < 0
 		})
 

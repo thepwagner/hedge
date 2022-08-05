@@ -8,16 +8,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/thepwagner/hedge/debian"
-	"go.opentelemetry.io/otel/trace"
+	"github.com/thepwagner/hedge/pkg/observability"
 )
 
 func TestParsePackages(t *testing.T) {
+	// Parse a copy of "contrib" Packages (the smallest component)
 	f, err := os.Open("testdata/bullseye_Packages")
 	require.NoError(t, err)
 	defer f.Close()
 
-	tracer := trace.NewNoopTracerProvider().Tracer("")
-	pp := debian.NewPackageParser(tracer)
+	pp := debian.NewPackageParser(observability.NoopTracer)
 	pkgs, err := pp.ParsePackages(context.Background(), f)
 	require.NoError(t, err)
 	assert.Len(t, pkgs, 297)

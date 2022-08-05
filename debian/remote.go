@@ -86,7 +86,7 @@ func NewRemoteLoader(tracer trace.Tracer, client *http.Client, cfg UpstreamConfi
 }
 
 func (r *RemoteReleaseLoader) Load(ctx context.Context) (*Release, error) {
-	ctx, span := r.tracer.Start(ctx, "debianremote.Load")
+	ctx, span := r.tracer.Start(ctx, "debianremote.LoadRelease")
 	defer span.End()
 
 	// Fetch the InRelease (clear-signed) file:
