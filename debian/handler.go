@@ -182,6 +182,9 @@ func newDistConfig(tracer trace.Tracer, client *http.Client, cfgDir string, cfg 
 		var rpl *RemotePackagesLoader
 		release, rpl, err = NewRemoteLoader(tracer, client, *cfg.Source.Upstream)
 		packages = rpl
+		if err != nil {
+			return nil, err
+		}
 		defer func() {
 			rpl.releases = release
 		}()

@@ -1,6 +1,7 @@
 package debian_test
 
 import (
+	"compress/gzip"
 	"context"
 	"os"
 	"testing"
@@ -13,12 +14,14 @@ import (
 
 func TestParsePackages(t *testing.T) {
 	// Parse a copy of "contrib" Packages (the smallest component)
-	f, err := os.Open("testdata/bullseye_Packages")
+	f, err := os.Open("testdata/bullseye_Packages.gz")
 	require.NoError(t, err)
 	defer f.Close()
+	gzR, err := gzip.NewReader(f)
+	require.NoError(t, err)
 
 	pp := debian.NewPackageParser(observability.NoopTracer)
-	pkgs, err := pp.ParsePackages(context.Background(), f)
+	pkgs, err := pp.ParsePackages(context.Background(), gzR)
 	require.NoError(t, err)
 	assert.Len(t, pkgs, 297)
 
