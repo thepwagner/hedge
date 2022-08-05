@@ -2,9 +2,12 @@ package debian
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"sync"
 
 	"github.com/thepwagner/hedge/pkg/filter"
+	"github.com/thepwagner/hedge/pkg/signature"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -21,12 +24,14 @@ type FilteredPackageLoader struct {
 	tracer  trace.Tracer
 	wrapped PackagesLoader
 	pred    filter.Predicate[Package]
+	rekor   signature.RekorFinder
 }
 
-func NewFilteredPackageLoader(tracer trace.Tracer, wrapped PackagesLoader, pred filter.Predicate[Package]) *FilteredPackageLoader {
+func NewFilteredPackageLoader(tracer trace.Tracer, wrapped PackagesLoader, rekor signature.RekorFinder, pred filter.Predicate[Package]) *FilteredPackageLoader {
 	return &FilteredPackageLoader{
 		tracer:  tracer,
 		wrapped: wrapped,
+		rekor:   rekor,
 		pred:    pred,
 	}
 }
@@ -41,7 +46,24 @@ func (p FilteredPackageLoader) LoadPackages(ctx context.Context, arch Architectu
 	if err != nil {
 		return nil, err
 	}
-	return filter.FilterSlice(ctx, p.pred, pkgs...)
+
+	decorated := make([]Package, 0, len(pkgs))
+	for _, pkg := range pkgs {
+		digest, err := hex.DecodeString(pkg.Sha256)
+		if err != nil {
+			return nil, err
+		}
+		if signer, err := p.rekor.GetSignature(ctx, digest); err != nil {
+			return nil, err
+		} else if signer != nil {
+			s, _ := json.Marshal(signer)
+			pkg.RekorRaw = string(s)
+		}
+
+		decorated = append(decorated, pkg)
+	}
+
+	return filter.FilterSlice(ctx, p.pred, decorated...)
 }
 
 // In-memory caching of values, for early dev

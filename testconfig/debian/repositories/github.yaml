@@ -7,8 +7,8 @@ source:
       origin: GitHub
       codename: github
     repositories:
-      - golangci/golangci-lint
+      - sigstore/cosign
 
 policies:
   anyOf:
-    - everything.cue
+    - cosign.cue

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mitchellh/mapstructure"
+	"github.com/thepwagner/hedge/pkg/signature"
 )
 
 type Package struct {
@@ -27,21 +28,31 @@ type Package struct {
 	SizeRaw          string `json:"-" mapstructure:"Size"`
 	MD5Sum           string `json:"md5sum"`
 	Sha256           string `json:"sha256"`
+	RekorRaw         string `json:"-" mapstructure:"-"`
 }
 
 func (p Package) GetName() string     { return p.Package }
 func (p Package) GetPriority() string { return p.Priority }
 
 func (p Package) MarshalJSON() ([]byte, error) {
+	var rek signature.RekorEntry
+	if p.RekorRaw != "" {
+		if err := json.Unmarshal([]byte(p.RekorRaw), &rek); err != nil {
+			return nil, err
+		}
+	}
+
 	type Alias Package
 	return json.Marshal(&struct {
 		*Alias
-		Depends []string `json:"depends"`
-		Tags    []string `json:"tags"`
+		Depends []string             `json:"depends"`
+		Tags    []string             `json:"tags"`
+		Rekor   signature.RekorEntry `json:"rekor"`
 	}{
 		Tags:    p.Tags(),
 		Depends: p.Depends(),
 		Alias:   (*Alias)(&p),
+		Rekor:   rek,
 	})
 }
 

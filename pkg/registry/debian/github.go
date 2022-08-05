@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -67,7 +68,7 @@ func (gh GitHubPackagesLoader) LoadPackages(ctx context.Context, arch Architectu
 	ctx, span := gh.tracer.Start(ctx, "githubloader.LoadPackages")
 	defer span.End()
 
-	archSuffix := fmt.Sprintf("-%s.deb", arch)
+	archRE := regexp.MustCompile(fmt.Sprintf("[-_]%s\\.deb$", arch))
 	var packages []Package
 	for _, repo := range gh.ghRepos {
 		releases, _, err := gh.github.Repositories.ListReleases(ctx, repo.owner, repo.name, nil)
@@ -77,7 +78,7 @@ func (gh GitHubPackagesLoader) LoadPackages(ctx context.Context, arch Architectu
 		}
 		for _, r := range releases {
 			for _, asset := range r.Assets {
-				if strings.HasSuffix(asset.GetName(), archSuffix) {
+				if archRE.MatchString(asset.GetName()) {
 					debURL := asset.GetBrowserDownloadURL()
 					req, err := http.NewRequest("GET", debURL, nil)
 					if err != nil {

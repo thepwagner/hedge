@@ -112,9 +112,9 @@ func WriteControlFile[P ToParagraph](out io.Writer, graphs ...P) error {
 			} else if keyJ == "Package" {
 				return false
 			}
-			if keyI == "SHA256" {
+			if strings.EqualFold(keyI, "SHA256") {
 				return false
-			} else if keyJ == "SHA256" {
+			} else if strings.EqualFold(keyJ, "SHA256") {
 				return true
 			}
 			if keyI == "MD5Sum" {

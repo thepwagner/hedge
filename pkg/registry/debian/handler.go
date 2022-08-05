@@ -10,6 +10,7 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"github.com/gorilla/mux"
 	"github.com/thepwagner/hedge/pkg/filter"
+	"github.com/thepwagner/hedge/pkg/signature"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -204,7 +205,12 @@ func newDistConfig(tracer trace.Tracer, client *http.Client, cfgDir string, cfg 
 	if err != nil {
 		return nil, fmt.Errorf("parsing policies: %w", err)
 	}
-	packages = NewFilteredPackageLoader(tracer, packages, pkgFilter)
+	rekor, err := signature.NewRekorFinder(client)
+	if err != nil {
+		return nil, fmt.Errorf("creating rekor: %w", err)
+	}
+
+	packages = NewFilteredPackageLoader(tracer, packages, *rekor, pkgFilter)
 
 	// TODO: freeze responses in-memory for lazy caching
 	release = freezeReleaseLoader(release)
