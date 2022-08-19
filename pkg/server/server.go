@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/go-redis/redis/v9"
 	"github.com/gorilla/mux"
+	"github.com/thepwagner/hedge/pkg/cache"
 	"github.com/thepwagner/hedge/pkg/observability"
+	"github.com/thepwagner/hedge/pkg/registry"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -66,6 +69,18 @@ func newMuxRouter(ctx context.Context, tp *sdktrace.TracerProvider, cfg Config) 
 	client := observability.NewHTTPClient(tp)
 	r := mux.NewRouter()
 
+	// Use a traced redis cache for storage:
+	redisC := redis.NewClient(&redis.Options{
+		Addr:        cfg.RedisURL,
+		ReadTimeout: -1,
+	})
+	storage := cache.NewRedis(redisC)
+	traced := cache.NewTracedCache[[]byte](tracer, storage)
+
+	trusted := cache.NewTrustedStorage(map[string][]byte{
+		"test": []byte("test"),
+	}, "test", traced)
+
 	for _, ep := range ecosystems {
 		eco := ep.Ecosystem()
 		ecoCfg := cfg.Ecosystems[eco]
@@ -78,7 +93,13 @@ func newMuxRouter(ctx context.Context, tp *sdktrace.TracerProvider, cfg Config) 
 			attribute.Int("repository_count", len(ecoCfg.Repositories)),
 		))
 
-		h, err := ep.NewHandler(tracer, client, ecoCfg)
+		h, err := ep.NewHandler(registry.HandlerArgs{
+			Tracer:    tracer,
+			Client:    client,
+			Untrusted: traced,
+			Trusted:   trusted,
+			Ecosystem: ecoCfg,
+		})
 		if err != nil {
 			span.RecordError(err, trace.WithAttributes(observability.Ecosystem(eco)))
 			span.SetStatus(codes.Error, err.Error())

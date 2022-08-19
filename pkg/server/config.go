@@ -16,6 +16,7 @@ type Config struct {
 	Addr           string
 	ConfigDir      string
 	TracerEndpoint string
+	RedisURL       string
 
 	Ecosystems map[registry.Ecosystem]registry.EcosystemConfig
 }
@@ -31,6 +32,7 @@ func LoadConfig(dir string) (*Config, error) {
 		Addr:           ":8080",
 		ConfigDir:      dir,
 		TracerEndpoint: "http://riker.pwagner.net:14268/api/traces",
+		RedisURL:       "localhost:6379",
 		Ecosystems:     make(map[registry.Ecosystem]registry.EcosystemConfig, len(ecosystems)),
 	}
 

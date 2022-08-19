@@ -17,3 +17,7 @@ func Ecosystem(e registry.Ecosystem) attribute.KeyValue {
 func RepositoryName(rn string) attribute.KeyValue {
 	return repositoryNameKey.String(rn)
 }
+
+func CacheHit(hit bool) attribute.KeyValue {
+	return attribute.Bool("cache_hit", hit)
+}

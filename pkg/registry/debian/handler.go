@@ -9,8 +9,8 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"github.com/gorilla/mux"
+	"github.com/thepwagner/hedge/pkg/registry"
 	"github.com/thepwagner/hedge/pkg/registry/base"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // Handler implements https://wiki.debian.org/DebianRepository/Format
@@ -18,10 +18,10 @@ type Handler struct {
 	base.Handler[*repositoryHandler]
 }
 
-func (h *Handler) Register(r *mux.Router) {
+func (h Handler) Register(r *mux.Router) {
 	r.HandleFunc("/debian/dists/{repository}/InRelease", h.HandleInRelease)
-	r.HandleFunc("/debian/dists/{repository}/{comp}/binary-{arch}/Packages{compression:(?:|.xz|.gz)}", h.HandlePackages)
-	// r.HandleFunc("/debian/dists/{repository}/pool/{path:.*}", h.HandlePool)
+	r.HandleFunc("/debian/dists/{repository}/main/binary-{arch}/Packages{compression:(?:|.xz|.gz)}", h.HandlePackages)
+	r.HandleFunc("/debian/dists/{repository}/pool/{path:.*}", h.HandlePool)
 }
 
 func (h Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
@@ -63,16 +63,15 @@ func (h Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	})
-
 }
 
-func (h *Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
+func (h Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
 	h.RepositoryHandler(w, r, "debian.HandlePackages", func(ctx context.Context, vars map[string]string, rh *repositoryHandler) error {
-		arch := vars["arch"]
+		arch := Architecture(vars["arch"])
 		compression := FromExtension(vars["compression"])
 
 		// Load and serve the packages list. The client expects this to match what HandleInRelease digested
-		pkgs, err := rh.packages.LoadPackages(ctx, Architecture(arch))
+		pkgs, err := rh.packages.LoadPackages(ctx, arch)
 		if err != nil {
 			return err
 		}
@@ -84,25 +83,15 @@ func (h *Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// func (h *Handler) HandlePool(w http.ResponseWriter, r *http.Request) {
-// 	ctx, span := h.Tracer.Start(r.Context(), "debian.HandlePool")
-// 	defer span.End()
-// 	vars := mux.Vars(r)
-// 	distName := vars["dist"]
-// 	span.SetAttributes(attrDist.String(distName))
-
-// 	dist, ok := h.dists[distName]
-// 	if !ok {
-// 		span.SetStatus(codes.Error, "dist not found")
-// 		http.Error(w, "dist not found", http.StatusNotFound)
-// 		return
-// 	}
-
-// 	path := vars["path"]
-// 	url := dist.packages.BaseURL() + path
-// 	r = r.WithContext(ctx)
-// 	http.Redirect(w, r, url, http.StatusMovedPermanently)
-// }
+func (h *Handler) HandlePool(w http.ResponseWriter, r *http.Request) {
+	h.RepositoryHandler(w, r, "debian.HandlePool", func(ctx context.Context, vars map[string]string, rh *repositoryHandler) error {
+		path := vars["path"]
+		url := rh.packages.BaseURL() + path
+		r = r.WithContext(ctx)
+		http.Redirect(w, r, url, http.StatusMovedPermanently)
+		return nil
+	})
+}
 
 type repositoryHandler struct {
 	pk       *packet.PrivateKey
@@ -110,7 +99,7 @@ type repositoryHandler struct {
 	packages PackagesLoader
 }
 
-func newRepositoryHandler(tracer trace.Tracer, client *http.Client, policies map[string]string, cfg *RepositoryConfig) (*repositoryHandler, error) {
+func newRepositoryHandler(args registry.HandlerArgs, cfg *RepositoryConfig) (*repositoryHandler, error) {
 	// Load the private signing key
 	if cfg.KeyPath == "" {
 		return nil, fmt.Errorf("missing key")
@@ -125,7 +114,7 @@ func newRepositoryHandler(tracer trace.Tracer, client *http.Client, policies map
 	var packages PackagesLoader
 	if upCfg := cfg.Source.Upstream; upCfg != nil {
 		var rpl *RemotePackagesLoader
-		release, rpl, err = NewRemoteLoader(tracer, client, *cfg.Source.Upstream)
+		release, rpl, err = NewRemoteLoader(args, *cfg.Source.Upstream)
 		packages = rpl
 		if err != nil {
 			return nil, err
@@ -135,7 +124,7 @@ func newRepositoryHandler(tracer trace.Tracer, client *http.Client, policies map
 		}()
 	} else if ghCfg := cfg.Source.GitHub; ghCfg != nil {
 		release = &FixedReleaseLoader{release: ghCfg.Release}
-		packages = NewGitHubPackagesLoader(tracer, client, *cfg.Source.GitHub)
+		packages = NewGitHubPackagesLoader(args.Tracer, args.Client, *cfg.Source.GitHub)
 	} else {
 		return nil, fmt.Errorf("no source specified")
 	}
@@ -154,10 +143,6 @@ func newRepositoryHandler(tracer trace.Tracer, client *http.Client, policies map
 	// }
 
 	// packages = NewFilteredPackageLoader(tracer, packages, *rekor, pkgFilter)
-
-	// TODO: freeze responses in-memory for lazy caching
-	release = freezeReleaseLoader(release)
-	packages = freezePackagesLoader(packages)
 
 	return &repositoryHandler{
 		pk:       key[0].PrivateKey,

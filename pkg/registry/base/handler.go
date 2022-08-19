@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/thepwagner/hedge/pkg/cache"
 	"github.com/thepwagner/hedge/pkg/observability"
 	"github.com/thepwagner/hedge/pkg/registry"
 	"go.opentelemetry.io/otel/attribute"
@@ -16,15 +17,19 @@ import (
 type Handler[R any] struct {
 	Tracer       trace.Tracer
 	Repositories map[string]R
+	Untrusted    cache.Storage
+	Trusted      cache.Storage
 }
 
-func NewHandler[R any, C registry.RepositoryConfig](tracer trace.Tracer, ecoCfg registry.EcosystemConfig, convert func(C) (R, error)) (*Handler[R], error) {
+func NewHandler[R any, C registry.RepositoryConfig](args registry.HandlerArgs, convert func(C) (R, error)) (*Handler[R], error) {
 	h := &Handler[R]{
-		Tracer:       tracer,
-		Repositories: make(map[string]R, len(ecoCfg.Repositories)),
+		Tracer:       args.Tracer,
+		Repositories: make(map[string]R, len(args.Ecosystem.Repositories)),
+		Untrusted:    args.Untrusted,
+		Trusted:      args.Trusted,
 	}
 
-	for name, repoCfg := range ecoCfg.Repositories {
+	for name, repoCfg := range args.Ecosystem.Repositories {
 		casted, ok := repoCfg.(C)
 		if !ok {
 			return nil, fmt.Errorf("repository %s is unexpected type", name)

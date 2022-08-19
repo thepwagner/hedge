@@ -6,20 +6,26 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/thepwagner/hedge/pkg/cache"
+	"github.com/thepwagner/hedge/pkg/registry"
 	"go.opentelemetry.io/otel/trace"
 )
 
 type remoteLoader struct {
-	tracer trace.Tracer
-	client *http.Client
+	tracer   trace.Tracer
+	client   *http.Client
+	urlCache cache.Cache[[]byte]
 
 	baseURL    string
 	dist       string
@@ -30,15 +36,18 @@ type RemoteReleaseLoader struct {
 	remoteLoader
 	keyring       openpgp.EntityList
 	architectures []string
+	cacheDuration time.Duration
 }
 
 type RemotePackagesLoader struct {
 	remoteLoader
-	releases ReleaseLoader
-	parser   PackageParser
+	packageCache  cache.Cache[[]Package]
+	cacheDuration time.Duration
+	releases      ReleaseLoader
+	parser        PackageParser
 }
 
-func NewRemoteLoader(tracer trace.Tracer, client *http.Client, cfg UpstreamConfig) (*RemoteReleaseLoader, *RemotePackagesLoader, error) {
+func NewRemoteLoader(args registry.HandlerArgs, cfg UpstreamConfig) (*RemoteReleaseLoader, *RemotePackagesLoader, error) {
 	if cfg.Release == "" {
 		return nil, nil, fmt.Errorf("missing release")
 	}
@@ -65,8 +74,9 @@ func NewRemoteLoader(tracer trace.Tracer, client *http.Client, cfg UpstreamConfi
 	}
 
 	rl := remoteLoader{
-		tracer:     tracer,
-		client:     client,
+		tracer:     args.Tracer,
+		client:     args.Client,
+		urlCache:   cache.Prefix[[]byte]("debian_urls", args.Untrusted),
 		baseURL:    baseURL,
 		dist:       cfg.Release,
 		components: components,
@@ -75,11 +85,14 @@ func NewRemoteLoader(tracer trace.Tracer, client *http.Client, cfg UpstreamConfi
 		remoteLoader:  rl,
 		keyring:       kr,
 		architectures: architectures,
+		cacheDuration: 5 * time.Minute,
 	}
 	packages := &RemotePackagesLoader{
-		remoteLoader: rl,
-		releases:     releases,
-		parser:       PackageParser{tracer: tracer},
+		remoteLoader:  rl,
+		releases:      releases,
+		packageCache:  cache.Prefix[[]Package]("debian_packages", cache.NewJSONCache[[]Package](cache.NewGzipStorage(args.Trusted))),
+		cacheDuration: 5 * time.Minute,
+		parser:        PackageParser{tracer: args.Tracer},
 	}
 	return releases, packages, nil
 }
@@ -109,26 +122,46 @@ func (r *RemoteReleaseLoader) Load(ctx context.Context) (*Release, error) {
 }
 
 func (r *RemoteReleaseLoader) fetchInRelease(ctx context.Context) (Paragraph, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", r.baseURL+"/dists/"+r.dist+"/InRelease", nil)
+	releaseURL := r.baseURL + "/dists/" + r.dist + "/InRelease"
+
+	// The cache is not trusted, since the stored bytes must be signed by keyring.
+	b, err := r.urlCache.Get(ctx, releaseURL)
+	var cacheSet bool
 	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	resp, err := r.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	b, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+		if !errors.Is(err, cache.ErrNotFound) {
+			return nil, fmt.Errorf("cache lookup error: %w", err)
+		}
+
+		// Cache miss, make the request:
+		cacheSet = true
+		req, err := http.NewRequestWithContext(ctx, "GET", releaseURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req = req.WithContext(ctx)
+		resp, err := r.client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		b, err = io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
 	}
 
+	ctx, parseSpan := r.tracer.Start(ctx, "debianremote.parseReleaseFile")
 	graph, err := ParseReleaseFile(b, r.keyring)
+	parseSpan.End()
 	if err != nil {
 		return nil, err
 	}
 
+	if cacheSet {
+		if err := r.urlCache.Set(ctx, releaseURL, b, r.cacheDuration); err != nil {
+			return nil, fmt.Errorf("cache set error: %w", err)
+		}
+	}
 	return graph, nil
 }
 
@@ -137,6 +170,13 @@ func (r *RemotePackagesLoader) BaseURL() string {
 }
 
 func (r *RemotePackagesLoader) LoadPackages(ctx context.Context, arch Architecture) ([]Package, error) {
+	cacheKey := fmt.Sprintf("%s:%s", r.baseURL, arch)
+	if packages, err := r.packageCache.Get(ctx, cacheKey); err == nil {
+		return packages, nil
+	} else if err != nil && !errors.Is(err, cache.ErrNotFound) {
+		return nil, err
+	}
+
 	ctx, span := r.tracer.Start(ctx, "debianremote.LoadPackages")
 	defer span.End()
 	span.SetAttributes(attrArchitecture.String(string(arch)))
@@ -168,6 +208,9 @@ func (r *RemotePackagesLoader) LoadPackages(ctx context.Context, arch Architectu
 		allPackages = append(allPackages, pkgs...)
 	}
 
+	if err := r.packageCache.Set(ctx, cacheKey, allPackages, r.cacheDuration); err != nil {
+		return nil, err
+	}
 	return allPackages, nil
 }
 
@@ -205,7 +248,32 @@ func (r *RemotePackagesLoader) fileMetadata(ctx context.Context) (map[string]Pac
 }
 
 func (r *RemotePackagesLoader) fetchPackages(ctx context.Context, digest PackagesDigest) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", r.baseURL+"/dists/"+r.dist+"/"+digest.Path, nil)
+	p, err := url.JoinPath("dists", r.dist, digest.Path)
+	if err != nil {
+		return nil, err
+	}
+	packagesURL := r.baseURL + p
+
+	// The cache is not trusted, since the stored bytes must match expected digest
+	cacheKey := fmt.Sprintf("%s#%x", packagesURL, digest.Sha256)
+	b, err := r.urlCache.Get(ctx, cacheKey)
+	if err == nil {
+		// Double-check the cache hasn't been tampered:
+		if len(b) != digest.Size {
+			return nil, fmt.Errorf("expected %d bytes, got %d", digest.Size, len(b))
+		}
+		if actualDigest := sha256.Sum256(b); !bytes.Equal(actualDigest[:], digest.Sha256) {
+			return nil, fmt.Errorf("expected digest %x, got %x", digest.Sha256, actualDigest)
+		}
+		return b, nil
+	}
+
+	if !errors.Is(err, cache.ErrNotFound) {
+		return nil, fmt.Errorf("cache lookup error: %w", err)
+	}
+
+	// Not found, fetch:
+	req, err := http.NewRequestWithContext(ctx, "GET", packagesURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -215,16 +283,20 @@ func (r *RemotePackagesLoader) fetchPackages(ctx context.Context, digest Package
 		return nil, err
 	}
 	defer resp.Body.Close()
-	b, err := ioutil.ReadAll(resp.Body)
+	b, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
+	// Verify and store to cache, without expiry since the key contains content hash
 	if len(b) != digest.Size {
 		return nil, fmt.Errorf("expected %d bytes, got %d", digest.Size, len(b))
 	}
 	if actualDigest := sha256.Sum256(b); !bytes.Equal(actualDigest[:], digest.Sha256) {
 		return nil, fmt.Errorf("expected digest %x, got %x", digest.Sha256, actualDigest)
+	}
+	if err := r.urlCache.Set(ctx, cacheKey, b, 0); err != nil {
+		return nil, fmt.Errorf("cache set error: %w", err)
 	}
 	return b, nil
 }

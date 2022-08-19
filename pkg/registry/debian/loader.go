@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"sync"
 
 	"github.com/thepwagner/hedge/pkg/filter"
 	"github.com/thepwagner/hedge/pkg/signature"
@@ -64,65 +63,4 @@ func (p FilteredPackageLoader) LoadPackages(ctx context.Context, arch Architectu
 	}
 
 	return filter.FilterSlice(ctx, p.pred, decorated...)
-}
-
-// In-memory caching of values, for early dev
-// TODO: replace with external cache (redis?)
-
-type freezingPackagesLoader struct {
-	wrapped PackagesLoader
-
-	mu       sync.Mutex
-	packages map[Architecture][]Package
-}
-
-func freezePackagesLoader(wrapped PackagesLoader) *freezingPackagesLoader {
-	return &freezingPackagesLoader{
-		wrapped:  wrapped,
-		packages: map[Architecture][]Package{},
-	}
-}
-
-func (f *freezingPackagesLoader) BaseURL() string { return f.wrapped.BaseURL() }
-
-func (f *freezingPackagesLoader) LoadPackages(ctx context.Context, arch Architecture) ([]Package, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if pkgs, ok := f.packages[arch]; ok {
-		return pkgs, nil
-	}
-	pkgs, err := f.wrapped.LoadPackages(ctx, arch)
-	if err != nil {
-		return nil, err
-	}
-	f.packages[arch] = pkgs
-	return pkgs, nil
-}
-
-type freezingReleaseLoader struct {
-	wrapped ReleaseLoader
-
-	mu      sync.Mutex
-	release *Release
-}
-
-func freezeReleaseLoader(wrapped ReleaseLoader) *freezingReleaseLoader {
-	return &freezingReleaseLoader{
-		wrapped: wrapped,
-	}
-}
-
-func (f *freezingReleaseLoader) Load(ctx context.Context) (*Release, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.release != nil {
-		return f.release, nil
-	}
-
-	release, err := f.wrapped.Load(ctx)
-	if err != nil {
-		return nil, err
-	}
-	f.release = release
-	return release, nil
 }

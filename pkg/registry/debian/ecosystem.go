@@ -1,11 +1,8 @@
 package debian
 
 import (
-	"net/http"
-
 	"github.com/thepwagner/hedge/pkg/registry"
 	"github.com/thepwagner/hedge/pkg/registry/base"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const Ecosystem registry.Ecosystem = "debian"
@@ -19,9 +16,9 @@ func (e EcosystemProvider) BlankRepositoryConfig() registry.RepositoryConfig {
 	return &RepositoryConfig{}
 }
 
-func (e EcosystemProvider) NewHandler(tracer trace.Tracer, client *http.Client, ecoCfg registry.EcosystemConfig) (registry.HasRoutes, error) {
-	h, err := base.NewHandler(tracer, ecoCfg, func(cfg *RepositoryConfig) (*repositoryHandler, error) {
-		return newRepositoryHandler(tracer, client, ecoCfg.Policies, cfg)
+func (e EcosystemProvider) NewHandler(args registry.HandlerArgs) (registry.HasRoutes, error) {
+	h, err := base.NewHandler(args, func(cfg *RepositoryConfig) (*repositoryHandler, error) {
+		return newRepositoryHandler(args, cfg)
 	})
 	if err != nil {
 		return nil, err
