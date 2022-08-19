@@ -1,6 +1,9 @@
 package debian
 
-import "github.com/thepwagner/hedge/pkg/filter"
+import (
+	"github.com/thepwagner/hedge/pkg/filter"
+	"github.com/thepwagner/hedge/pkg/registry"
+)
 
 type RepositoryConfig struct {
 	Source   SourceConfig     `yaml:"source"`
@@ -10,8 +13,11 @@ type RepositoryConfig struct {
 	KeyPath string `yaml:"keyPath"`
 }
 
-func (c RepositoryConfig) Name() string         { return c.NameRaw }
-func (c *RepositoryConfig) SetName(name string) { c.NameRaw = name }
+var _ registry.RepositoryConfig = (*RepositoryConfig)(nil)
+
+func (c RepositoryConfig) Name() string          { return c.NameRaw }
+func (c *RepositoryConfig) SetName(name string)  { c.NameRaw = name }
+func (c RepositoryConfig) PolicyNames() []string { return c.Policies.PolicyNames() }
 
 // SourceConfig defines where packages are stored.
 type SourceConfig struct {

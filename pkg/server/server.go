@@ -1,45 +1,38 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
 	"github.com/thepwagner/hedge/pkg/observability"
-	"github.com/thepwagner/hedge/pkg/registry/debian"
-	"github.com/thepwagner/hedge/pkg/registry/npm"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/jaeger"
 	"go.opentelemetry.io/otel/sdk/resource"
-	"go.opentelemetry.io/otel/sdk/trace"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.10.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
-func RunServer(cfg Config) error {
+func RunServer(ctx context.Context, cfg Config) error {
 	tp, err := newTracerProvider(cfg)
 	if err != nil {
 		return err
 	}
-	client := observability.NewHTTPClient(tp)
-	tracer := tp.Tracer("hedge")
 
-	r := mux.NewRouter()
-	debHandler, err := debian.NewHandler(tracer, client, cfg.ConfigDir, cfg.Debian)
+	router, err := newMuxRouter(ctx, tp, cfg)
 	if err != nil {
 		return err
 	}
-	debHandler.Register(r)
 
-	npmHandler, err := npm.NewHandler(tracer, client, cfg.ConfigDir, cfg.NPM)
-	if err != nil {
-		return err
-	}
-	npmHandler.Register(r)
-
+	handler := otelhttp.NewHandler(router, "ServeHTTP", otelhttp.WithTracerProvider(tp))
 	srv := &http.Server{
 		Addr:    cfg.Addr,
-		Handler: otelhttp.NewHandler(r, "ServeHTTP", otelhttp.WithTracerProvider(tp)),
+		Handler: handler,
 	}
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("server error: %w", err)
@@ -47,9 +40,9 @@ func RunServer(cfg Config) error {
 	return nil
 }
 
-func newTracerProvider(cfg Config) (*trace.TracerProvider, error) {
-	tpOptions := []trace.TracerProviderOption{
-		trace.WithResource(resource.NewWithAttributes(
+func newTracerProvider(cfg Config) (*sdktrace.TracerProvider, error) {
+	tpOptions := []sdktrace.TracerProviderOption{
+		sdktrace.WithResource(resource.NewWithAttributes(
 			semconv.SchemaURL,
 			semconv.ServiceNameKey.String("hedge"),
 		)),
@@ -59,8 +52,39 @@ func newTracerProvider(cfg Config) (*trace.TracerProvider, error) {
 		if err != nil {
 			return nil, err
 		}
-		tpOptions = append(tpOptions, trace.WithBatcher(jaegerOut))
+		tpOptions = append(tpOptions, sdktrace.WithBatcher(jaegerOut))
 	}
 
-	return trace.NewTracerProvider(tpOptions...), nil
+	return sdktrace.NewTracerProvider(tpOptions...), nil
+}
+
+func newMuxRouter(ctx context.Context, tp *sdktrace.TracerProvider, cfg Config) (*mux.Router, error) {
+	tracer := tp.Tracer("hedge")
+	_, span := tracer.Start(ctx, "newMuxRouter")
+	defer span.End()
+
+	client := observability.NewHTTPClient(tp)
+	r := mux.NewRouter()
+
+	for _, ep := range ecosystems {
+		eco := ep.Ecosystem()
+		ecoCfg := cfg.Ecosystems[eco]
+		if len(ecoCfg.Repositories) == 0 {
+			continue
+		}
+
+		span.AddEvent("register ecosystem handler", trace.WithAttributes(
+			observability.Ecosystem(eco),
+			attribute.Int("repository_count", len(ecoCfg.Repositories)),
+		))
+
+		h, err := ep.NewHandler(tracer, client, ecoCfg)
+		if err != nil {
+			span.RecordError(err, trace.WithAttributes(observability.Ecosystem(eco)))
+			span.SetStatus(codes.Error, err.Error())
+			return nil, err
+		}
+		h.Register(r)
+	}
+	return r, nil
 }

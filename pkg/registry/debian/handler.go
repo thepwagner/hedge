@@ -2,172 +2,115 @@ package debian
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
-	"path/filepath"
 
 	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"github.com/gorilla/mux"
-	"github.com/thepwagner/hedge/pkg/filter"
-	"github.com/thepwagner/hedge/pkg/signature"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
+	"github.com/thepwagner/hedge/pkg/registry/base"
 	"go.opentelemetry.io/otel/trace"
 )
 
 // Handler implements https://wiki.debian.org/DebianRepository/Format
 type Handler struct {
-	tracer trace.Tracer
-	dists  map[string]distConfig
+	base.Handler[*repositoryHandler]
 }
 
-type distConfig struct {
+func (h *Handler) Register(r *mux.Router) {
+	r.HandleFunc("/debian/dists/{repository}/InRelease", h.HandleInRelease)
+	r.HandleFunc("/debian/dists/{repository}/{comp}/binary-{arch}/Packages{compression:(?:|.xz|.gz)}", h.HandlePackages)
+	// r.HandleFunc("/debian/dists/{repository}/pool/{path:.*}", h.HandlePool)
+}
+
+func (h Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
+	h.RepositoryHandler(w, r, "debian.HandleInRelease", func(ctx context.Context, vars map[string]string, rh *repositoryHandler) error {
+		// Load the release metadata:
+		release, err := rh.release.Load(ctx)
+		if err != nil {
+			return err
+		}
+		if release == nil {
+			return fmt.Errorf("remote release not found")
+		}
+
+		// The Release file contains hashes of all Packages files, so we need to load them:
+		packages := map[Architecture][]Package{}
+		for _, arch := range release.Architectures() {
+			pkgs, err := rh.packages.LoadPackages(ctx, arch)
+			if err != nil {
+				return err
+			}
+			packages[arch] = pkgs
+		}
+
+		// Write the signed InRelease file:
+		ctx, span := h.Tracer.Start(ctx, "debian.clearSign")
+		defer span.End()
+		enc, err := clearsign.Encode(w, rh.pk, nil)
+		if err != nil {
+			return err
+		}
+		if err := WriteReleaseFile(ctx, *release, packages, enc); err != nil {
+			return err
+		}
+		if err := enc.Close(); err != nil {
+			return err
+		}
+		if _, err = fmt.Fprintln(w); err != nil {
+			return err
+		}
+		return nil
+	})
+
+}
+
+func (h *Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
+	h.RepositoryHandler(w, r, "debian.HandlePackages", func(ctx context.Context, vars map[string]string, rh *repositoryHandler) error {
+		arch := vars["arch"]
+		compression := FromExtension(vars["compression"])
+
+		// Load and serve the packages list. The client expects this to match what HandleInRelease digested
+		pkgs, err := rh.packages.LoadPackages(ctx, Architecture(arch))
+		if err != nil {
+			return err
+		}
+		var buf bytes.Buffer
+		if err := WriteControlFile(&buf, pkgs...); err != nil {
+			return err
+		}
+		return compression.Compress(w, &buf)
+	})
+}
+
+// func (h *Handler) HandlePool(w http.ResponseWriter, r *http.Request) {
+// 	ctx, span := h.Tracer.Start(r.Context(), "debian.HandlePool")
+// 	defer span.End()
+// 	vars := mux.Vars(r)
+// 	distName := vars["dist"]
+// 	span.SetAttributes(attrDist.String(distName))
+
+// 	dist, ok := h.dists[distName]
+// 	if !ok {
+// 		span.SetStatus(codes.Error, "dist not found")
+// 		http.Error(w, "dist not found", http.StatusNotFound)
+// 		return
+// 	}
+
+// 	path := vars["path"]
+// 	url := dist.packages.BaseURL() + path
+// 	r = r.WithContext(ctx)
+// 	http.Redirect(w, r, url, http.StatusMovedPermanently)
+// }
+
+type repositoryHandler struct {
 	pk       *packet.PrivateKey
 	release  ReleaseLoader
 	packages PackagesLoader
 }
 
-func NewHandler(tracer trace.Tracer, client *http.Client, cfgDir string, repos map[string]*RepositoryConfig) (*Handler, error) {
-	dists := make(map[string]distConfig, len(repos))
-	for name, cfg := range repos {
-		dist, err := newDistConfig(tracer, client, cfgDir, cfg)
-		if err != nil {
-			return nil, err
-		}
-		dists[name] = *dist
-	}
-	return &Handler{
-		tracer: tracer,
-		dists:  dists,
-	}, nil
-}
-
-func (h *Handler) Register(r *mux.Router) {
-	r.HandleFunc("/debian/dists/{dist}/InRelease", h.HandleInRelease)
-	r.HandleFunc("/debian/dists/{dist}/{comp}/binary-{arch}/Packages{compression:(?:|.xz|.gz)}", h.HandlePackages)
-	r.HandleFunc("/debian/dists/{dist}/pool/{path:.*}", h.HandlePool)
-}
-
-func (h *Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
-	ctx, span := h.tracer.Start(r.Context(), "debian.HandleInRelease")
-	defer span.End()
-	distName := mux.Vars(r)["dist"]
-	span.SetAttributes(attrDist.String(distName))
-
-	dist, ok := h.dists[distName]
-	if !ok {
-		span.SetStatus(codes.Error, "dist not found")
-		http.Error(w, "dist not found", http.StatusNotFound)
-		return
-	}
-
-	// Load the release metadata:
-	release, err := dist.release.Load(ctx)
-	if err != nil {
-		span.RecordError(err)
-		http.Error(w, "error loading remote release", http.StatusInternalServerError)
-		return
-	}
-	if release == nil {
-		span.SetStatus(codes.Error, "remote release not found")
-		http.Error(w, "remote release not found", http.StatusInternalServerError)
-		return
-	}
-
-	// The Release file contains hashes of all Packages files, so we need to load them:
-	packages := map[Architecture][]Package{}
-	for _, arch := range release.Architectures() {
-		pkgs, err := dist.packages.LoadPackages(ctx, arch)
-		if err != nil {
-			span.RecordError(err)
-			http.Error(w, "error loading remote packages", http.StatusInternalServerError)
-			return
-		}
-		packages[arch] = pkgs
-	}
-
-	// Write the signed InRelease file:
-	ctx, span = h.tracer.Start(ctx, "debian.clearSign")
-	defer span.End()
-	enc, err := clearsign.Encode(w, dist.pk, nil)
-	if err != nil {
-		span.RecordError(err)
-		http.Error(w, "error signing release data", http.StatusInternalServerError)
-		return
-	}
-	if err := WriteReleaseFile(ctx, *release, packages, enc); err != nil {
-		span.RecordError(err)
-		return
-	}
-	if err := enc.Close(); err != nil {
-		span.RecordError(err)
-		return
-	}
-	if _, err = fmt.Fprintln(w); err != nil {
-		span.RecordError(err)
-		return
-	}
-}
-
-func (h *Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
-	ctx, span := h.tracer.Start(r.Context(), "debian.HandlePackages")
-	defer span.End()
-	vars := mux.Vars(r)
-	distName := vars["dist"]
-	span.SetAttributes(attrDist.String(distName))
-
-	dist, ok := h.dists[distName]
-	if !ok {
-		span.SetStatus(codes.Error, "dist not found")
-		http.Error(w, "dist not found", http.StatusNotFound)
-		return
-	}
-
-	arch := vars["arch"]
-	compression := FromExtension(vars["compression"])
-	span.SetAttributes(attrArchitecture.String(arch), attribute.String("compression", string(compression)))
-
-	// Load and serve the packages list. The client expects this to match what HandleInRelease digested
-	pkgs, err := dist.packages.LoadPackages(ctx, Architecture(arch))
-	if err != nil {
-		span.RecordError(err)
-		http.Error(w, "error loading remote packages", http.StatusInternalServerError)
-		return
-	}
-	var buf bytes.Buffer
-	if err := WriteControlFile(&buf, pkgs...); err != nil {
-		span.RecordError(err)
-		http.Error(w, "error writing package file", http.StatusInternalServerError)
-		return
-	}
-	if err := compression.Compress(w, &buf); err != nil {
-		span.RecordError(err)
-	}
-}
-
-func (h *Handler) HandlePool(w http.ResponseWriter, r *http.Request) {
-	ctx, span := h.tracer.Start(r.Context(), "debian.HandlePool")
-	defer span.End()
-	vars := mux.Vars(r)
-	distName := vars["dist"]
-	span.SetAttributes(attrDist.String(distName))
-
-	dist, ok := h.dists[distName]
-	if !ok {
-		span.SetStatus(codes.Error, "dist not found")
-		http.Error(w, "dist not found", http.StatusNotFound)
-		return
-	}
-
-	// https://github.com/golangci/golangci-lint/releases/download/v1.48.0/golangci-lint-1.48.0-linux-amd64.deb
-	path := vars["path"]
-	url := dist.packages.BaseURL() + path
-	r = r.WithContext(ctx)
-	http.Redirect(w, r, url, http.StatusMovedPermanently)
-}
-
-func newDistConfig(tracer trace.Tracer, client *http.Client, cfgDir string, cfg *RepositoryConfig) (*distConfig, error) {
+func newRepositoryHandler(tracer trace.Tracer, client *http.Client, policies map[string]string, cfg *RepositoryConfig) (*repositoryHandler, error) {
 	// Load the private signing key
 	if cfg.KeyPath == "" {
 		return nil, fmt.Errorf("missing key")
@@ -201,22 +144,22 @@ func newDistConfig(tracer trace.Tracer, client *http.Client, cfgDir string, cfg 
 	}
 
 	// Apply the policies to filter packages from the source:
-	pkgFilter, err := filter.CueConfigToPredicate[Package](filepath.Join(cfgDir, "debian", "policies"), cfg.Policies)
-	if err != nil {
-		return nil, fmt.Errorf("parsing policies: %w", err)
-	}
-	rekor, err := signature.NewRekorFinder(client)
-	if err != nil {
-		return nil, fmt.Errorf("creating rekor: %w", err)
-	}
+	// pkgFilter, err := filter.CueConfigToPredicate[Package](filepath.Join(cfgDir, "debian", "policies"), cfg.Policies)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("parsing policies: %w", err)
+	// }
+	// rekor, err := signature.NewRekorFinder(client)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("creating rekor: %w", err)
+	// }
 
-	packages = NewFilteredPackageLoader(tracer, packages, *rekor, pkgFilter)
+	// packages = NewFilteredPackageLoader(tracer, packages, *rekor, pkgFilter)
 
 	// TODO: freeze responses in-memory for lazy caching
 	release = freezeReleaseLoader(release)
 	packages = freezePackagesLoader(packages)
 
-	return &distConfig{
+	return &repositoryHandler{
 		pk:       key[0].PrivateKey,
 		release:  release,
 		packages: packages,

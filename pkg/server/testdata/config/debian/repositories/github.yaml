@@ -1,0 +1,14 @@
+keyPath: testdata/priv.txt
+
+source:
+  github:
+    release:
+      architectures: "amd64"
+      origin: GitHub
+      codename: github
+    repositories:
+      - sigstore/cosign
+
+policies:
+  anyOf:
+    - cosign.cue

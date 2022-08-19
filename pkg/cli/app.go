@@ -10,7 +10,7 @@ func App(log logr.Logger) *cli.App {
 		Name:        "hedge",
 		Description: "Package proxy",
 		Commands: []*cli.Command{
-			ServerCommand(log),
+			ServerCommand(),
 		},
 	}
 }

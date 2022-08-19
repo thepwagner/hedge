@@ -47,7 +47,6 @@ func MatchesCue[T any](entrypoints ...string) (Predicate[T], error) {
 		if err != nil {
 			return false, fmt.Errorf("json error: %w", err)
 		}
-		fmt.Println(string(b))
 
 		for _, val := range values {
 			if err := cuejson.Validate(b, val); err != nil {
