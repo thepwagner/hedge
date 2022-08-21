@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/thepwagner/hedge/pkg/cache"
+	"github.com/thepwagner/hedge/pkg/cached"
 	"github.com/thepwagner/hedge/pkg/filter"
 	"github.com/thepwagner/hedge/pkg/observability"
 	"github.com/thepwagner/hedge/pkg/registry"
@@ -45,8 +45,9 @@ func SyncCommand(log logr.Logger) *cli.Command {
 			log.Info("tracing", "trace_id", traceID)
 			fmt.Printf("http://riker.pwagner.net:16686/trace/%s\n", traceID)
 
-			redisCache := cache.NewRedis(cfg.RedisAddr)
-			storage := cache.NewTracedCache[[]byte](tracer, redisCache)
+			var storage cached.ByteStorage
+			storage = cached.InRedis(cfg.RedisAddr)
+			storage = cached.WithTracer[string, []byte](tracer, storage)
 
 			for _, ep := range server.Ecosystems(tracer, client, storage) {
 				eco := ep.Ecosystem()

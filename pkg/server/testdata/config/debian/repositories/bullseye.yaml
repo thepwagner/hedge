@@ -5,10 +5,9 @@ source:
     url: https://debian.mirror.rafal.ca/debian/
     release: bullseye
     architectures:
-      - all
       - amd64
     components:
-      - main
+      - non-free
     key: |-
       -----BEGIN PGP PUBLIC KEY BLOCK-----
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/thepwagner/hedge/pkg/cache"
+	"github.com/thepwagner/hedge/pkg/cached"
 	"github.com/thepwagner/hedge/pkg/registry"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
@@ -16,10 +16,10 @@ const Ecosystem registry.Ecosystem = "debian"
 type EcosystemProvider struct {
 	tracer  trace.Tracer
 	client  *http.Client
-	storage cache.Storage
+	storage cached.ByteStorage
 }
 
-func NewEcosystemProvider(tracer trace.Tracer, client *http.Client, storage cache.Storage) *EcosystemProvider {
+func NewEcosystemProvider(tracer trace.Tracer, client *http.Client, storage cached.ByteStorage) *EcosystemProvider {
 	return &EcosystemProvider{
 		tracer:  tracer,
 		client:  client,

@@ -6,25 +6,26 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
-	"github.com/thepwagner/hedge/pkg/cache"
+	"github.com/thepwagner/hedge/pkg/cached"
 	"go.opentelemetry.io/otel/trace"
 )
 
 type remoteLoader struct {
-	tracer   trace.Tracer
-	client   *http.Client
-	urlCache cache.Cache[[]byte]
+	tracer trace.Tracer
+	client *http.Client
+
+	fetchURL cached.Function[string, []byte]
 
 	baseURL    string
 	dist       string
@@ -44,7 +45,7 @@ type RemotePackagesLoader struct {
 	parser   PackageParser
 }
 
-func NewRemoteLoader(tracer trace.Tracer, client *http.Client, storage cache.Storage, cfg UpstreamConfig) (*RemoteReleaseLoader, *RemotePackagesLoader, error) {
+func NewRemoteLoader(tracer trace.Tracer, client *http.Client, storage cached.ByteStorage, cfg UpstreamConfig) (*RemoteReleaseLoader, *RemotePackagesLoader, error) {
 	if cfg.Release == "" {
 		return nil, nil, fmt.Errorf("missing release")
 	}
@@ -73,11 +74,12 @@ func NewRemoteLoader(tracer trace.Tracer, client *http.Client, storage cache.Sto
 	rl := remoteLoader{
 		tracer:     tracer,
 		client:     client,
-		urlCache:   cache.Prefix[[]byte]("debian_urls", storage),
 		baseURL:    baseURL,
 		dist:       cfg.Release,
 		components: components,
 	}
+	rl.fetchURL = cached.Cached[string, []byte](cached.WithPrefix[[]byte]("debian_urls", storage), 5*time.Minute, rl.FetchURL)
+
 	releases := &RemoteReleaseLoader{
 		remoteLoader:  rl,
 		keyring:       kr,
@@ -90,6 +92,24 @@ func NewRemoteLoader(tracer trace.Tracer, client *http.Client, storage cache.Sto
 		parser:       PackageParser{tracer: tracer},
 	}
 	return releases, packages, nil
+}
+
+func (r remoteLoader) FetchURL(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 func (r *RemoteReleaseLoader) Load(ctx context.Context) (*Release, error) {
@@ -117,45 +137,17 @@ func (r *RemoteReleaseLoader) Load(ctx context.Context) (*Release, error) {
 }
 
 func (r *RemoteReleaseLoader) fetchInRelease(ctx context.Context) (Paragraph, error) {
-	releaseURL := r.baseURL + "/dists/" + r.dist + "/InRelease"
+	ctx, span := r.tracer.Start(ctx, "debianremote.fetchInRelease")
+	defer span.End()
 
-	// The cache is not trusted, since the stored bytes must be signed by keyring.
-	b, err := r.urlCache.Get(ctx, releaseURL)
-	var cacheSet bool
+	b, err := r.fetchURL(ctx, r.baseURL+"/dists/"+r.dist+"/InRelease")
 	if err != nil {
-		if !errors.Is(err, cache.ErrNotFound) {
-			return nil, fmt.Errorf("cache lookup error: %w", err)
-		}
-
-		// Cache miss, make the request:
-		cacheSet = true
-		req, err := http.NewRequestWithContext(ctx, "GET", releaseURL, nil)
-		if err != nil {
-			return nil, err
-		}
-		req = req.WithContext(ctx)
-		resp, err := r.client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-		b, err = io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
-		}
+		return nil, fmt.Errorf("fetching release file: %w", err)
 	}
 
-	ctx, parseSpan := r.tracer.Start(ctx, "debianremote.parseReleaseFile")
 	graph, err := ParseReleaseFile(b, r.keyring)
-	parseSpan.End()
 	if err != nil {
-		return nil, err
-	}
-
-	if cacheSet {
-		if err := r.urlCache.Set(ctx, releaseURL, b, r.cacheDuration); err != nil {
-			return nil, fmt.Errorf("cache set error: %w", err)
-		}
+		return nil, fmt.Errorf("parsing release file: %w", err)
 	}
 	return graph, nil
 }
@@ -219,7 +211,7 @@ func (r *RemotePackagesLoader) fileMetadata(ctx context.Context, release *Releas
 			return nil, fmt.Errorf("parsing expected sha: %w", err)
 		}
 		digests[path] = PackagesDigest{
-			Path:   path,
+			Path:   fmt.Sprintf("%s/by-hash/SHA256/%x", filepath.Dir(path), sha),
 			Sha256: sha,
 			Size:   size,
 		}
@@ -233,38 +225,9 @@ func (r *RemotePackagesLoader) fetchPackages(ctx context.Context, digest Package
 	if err != nil {
 		return nil, err
 	}
-	packagesURL := r.baseURL + p
 
-	// The cache is not trusted, since the stored bytes must match expected digest
-	cacheKey := fmt.Sprintf("%s#%x", packagesURL, digest.Sha256)
-	b, err := r.urlCache.Get(ctx, cacheKey)
-	if err == nil {
-		// Double-check the cache hasn't been tampered:
-		if len(b) != digest.Size {
-			return nil, fmt.Errorf("expected %d bytes, got %d", digest.Size, len(b))
-		}
-		if actualDigest := sha256.Sum256(b); !bytes.Equal(actualDigest[:], digest.Sha256) {
-			return nil, fmt.Errorf("expected digest %x, got %x", digest.Sha256, actualDigest)
-		}
-		return b, nil
-	}
-
-	if !errors.Is(err, cache.ErrNotFound) {
-		return nil, fmt.Errorf("cache lookup error: %w", err)
-	}
-
-	// Not found, fetch:
-	req, err := http.NewRequestWithContext(ctx, "GET", packagesURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	resp, err := r.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	b, err = io.ReadAll(resp.Body)
+	// Extend the TTL, since the URL contains the expected digest
+	b, err := r.fetchURL(cached.For(ctx, 7*24*time.Hour), r.baseURL+p)
 	if err != nil {
 		return nil, err
 	}
@@ -275,9 +238,6 @@ func (r *RemotePackagesLoader) fetchPackages(ctx context.Context, digest Package
 	}
 	if actualDigest := sha256.Sum256(b); !bytes.Equal(actualDigest[:], digest.Sha256) {
 		return nil, fmt.Errorf("expected digest %x, got %x", digest.Sha256, actualDigest)
-	}
-	if err := r.urlCache.Set(ctx, cacheKey, b, 0); err != nil {
-		return nil, fmt.Errorf("cache set error: %w", err)
 	}
 	return b, nil
 }
