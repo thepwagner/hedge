@@ -3,14 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/thepwagner/hedge/pkg/cached"
-	"github.com/thepwagner/hedge/pkg/filter"
 	"github.com/thepwagner/hedge/pkg/observability"
-	"github.com/thepwagner/hedge/pkg/registry"
+	"github.com/thepwagner/hedge/pkg/registry/debian"
 	"github.com/thepwagner/hedge/pkg/server"
 	"github.com/urfave/cli/v2"
 )
@@ -55,38 +53,53 @@ func SyncCommand(log logr.Logger) *cli.Command {
 				ecoCfg := cfg.Ecosystems[eco]
 				ecoLog.Info("syncing ecosystem", "repository_count", len(ecoCfg.Repositories))
 
-				policyDir := filepath.Join(cfgDir, string(eco), "policies")
+				// policyDir := filepath.Join(cfgDir, string(eco), "policies")
+
+				debStorage := cached.AsJSON(storage, 1*time.Minute, func(ctx context.Context, cfg *debian.RepositoryConfig) ([]debian.Package, error) {
+					pkgs, err := ep.AllPackages(ctx, cfg)
+					if err != nil {
+						return nil, err
+					}
+					debs := make([]debian.Package, 0, len(pkgs))
+					for _, pkg := range pkgs {
+						debs = append(debs, pkg.(debian.Package))
+					}
+					return debs, nil
+				})
+
+				// debStorage := ep.AllPackages
 
 				for _, repo := range ecoCfg.Repositories {
 					repoLog := ecoLog.WithValues("repository", repo.Name()).V(1)
-					allPackages, err := ep.AllPackages(ctx, repo)
+					repoLog.Info("loading packages...")
+					allPackages, err := debStorage(ctx, repo.(*debian.RepositoryConfig))
 					if err != nil {
 						return err
 					}
 					repoLog.Info("loaded packages repository", "package_count", len(allPackages))
 
-					ctx, filterSpan := tracer.Start(ctx, "FilterPackages")
-					pred, err := filter.CueConfigToPredicate[registry.Package](policyDir, repo.FilterConfig())
-					if err != nil {
-						filterSpan.End()
-						return err
-					}
-					var filtered []registry.Package
-					for _, pkg := range allPackages {
-						ok, err := pred(ctx, pkg)
-						if err != nil {
-							filterSpan.End()
-							return err
-						}
-						if ok {
-							repoLog.V(1).Info("accepted package", "package_name", pkg.GetName())
-							filtered = append(filtered, pkg)
-						}
-					}
-					if err != nil {
-						return err
-					}
-					repoLog.Info("filtered packages repository", "package_count", len(filtered))
+					// ctx, filterSpan := tracer.Start(ctx, "FilterPackages")
+					// pred, err := filter.CueConfigToPredicate[registry.Package](policyDir, repo.FilterConfig())
+					// if err != nil {
+					// 	filterSpan.End()
+					// 	return err
+					// }
+					// var filtered []registry.Package
+					// for _, pkg := range allPackages {
+					// 	ok, err := pred(ctx, pkg)
+					// 	if err != nil {
+					// 		filterSpan.End()
+					// 		return err
+					// 	}
+					// 	if ok {
+					// 		repoLog.V(1).Info("accepted package", "package_name", pkg.GetName())
+					// 		filtered = append(filtered, pkg)
+					// 	}
+					// }
+					// if err != nil {
+					// 	return err
+					// }
+					// repoLog.Info("filtered packages repository", "package_count", len(filtered))
 				}
 			}
 			return nil

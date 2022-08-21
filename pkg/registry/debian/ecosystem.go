@@ -35,6 +35,8 @@ func (e EcosystemProvider) BlankRepositoryConfig() registry.RepositoryConfig {
 }
 
 func (e EcosystemProvider) AllPackages(ctx context.Context, repoCfg registry.RepositoryConfig) ([]registry.Package, error) {
+	ctx, span := e.tracer.Start(ctx, "debian.AllPackages")
+	defer span.End()
 	cfg, ok := repoCfg.(*RepositoryConfig)
 	if !ok {
 		return nil, fmt.Errorf("invalid repository config: %T", repoCfg)
@@ -64,8 +66,7 @@ func (e EcosystemProvider) AllPackages(ctx context.Context, repoCfg registry.Rep
 	}
 
 	eg, ctx := errgroup.WithContext(ctx)
-	res := make(chan registry.Package)
-
+	res := make(chan []Package, 1)
 	for _, arch := range r.Architectures() {
 		arch := arch
 		eg.Go(func() error {
@@ -73,9 +74,7 @@ func (e EcosystemProvider) AllPackages(ctx context.Context, repoCfg registry.Rep
 			if err != nil {
 				return err
 			}
-			for _, pkg := range pkgs {
-				res <- pkg
-			}
+			res <- pkgs
 			return nil
 		})
 	}
@@ -85,8 +84,10 @@ func (e EcosystemProvider) AllPackages(ctx context.Context, repoCfg registry.Rep
 	}()
 
 	var allPackages []registry.Package
-	for pkg := range res {
-		allPackages = append(allPackages, pkg)
+	for pkgs := range res {
+		for _, pkg := range pkgs {
+			allPackages = append(allPackages, pkg)
+		}
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, err

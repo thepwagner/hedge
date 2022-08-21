@@ -18,7 +18,9 @@ import (
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/thepwagner/hedge/pkg/cached"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/errgroup"
 )
 
 type remoteLoader struct {
@@ -113,7 +115,7 @@ func (r remoteLoader) FetchURL(ctx context.Context, url string) ([]byte, error) 
 }
 
 func (r *RemoteReleaseLoader) Load(ctx context.Context) (*Release, error) {
-	ctx, span := r.tracer.Start(ctx, "debianremote.LoadRelease")
+	ctx, span := r.tracer.Start(ctx, "debianremote.LoadRelease", trace.WithAttributes(attrDist(r.dist)))
 	defer span.End()
 
 	// Fetch the InRelease (clear-signed) file:
@@ -126,13 +128,15 @@ func (r *RemoteReleaseLoader) Load(ctx context.Context) (*Release, error) {
 		return nil, err
 	}
 
-	// Overwrite from configuration:
-	if arch := strings.Join(r.architectures, " "); arch != release.ArchitecturesRaw {
-		release.ArchitecturesRaw = arch
-	}
-	if comp := strings.Join(r.components, " "); comp != release.ComponentsRaw {
-		release.ComponentsRaw = comp
-	}
+	span.SetAttributes(
+		attribute.StringSlice("debian_architectures_remote", strings.Split(release.ArchitecturesRaw, " ")),
+		attribute.StringSlice("debian_components_remote", strings.Split(release.ComponentsRaw, " ")),
+		attribute.StringSlice("debian_architectures", r.architectures),
+		attrComponents(r.components),
+	)
+	release.ArchitecturesRaw = strings.Join(r.architectures, " ")
+	release.ComponentsRaw = strings.Join(r.components, " ")
+
 	return release, nil
 }
 
@@ -157,37 +161,56 @@ func (r *RemotePackagesLoader) BaseURL() string {
 }
 
 func (r *RemotePackagesLoader) LoadPackages(ctx context.Context, release *Release, arch Architecture) ([]Package, error) {
-	ctx, span := r.tracer.Start(ctx, "debianremote.LoadPackages")
+	ctx, span := r.tracer.Start(ctx, "debianremote.LoadPackages", trace.WithAttributes(attrArchitecture(arch), attrComponents(r.components)))
 	defer span.End()
-	span.SetAttributes(attrArchitecture.String(string(arch)))
 
 	expectedDigests, err := r.fileMetadata(ctx, release)
 	if err != nil {
 		return nil, err
 	}
 
-	var allPackages []Package
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(4)
+	res := make(chan []Package)
 	for _, comp := range r.components {
-		fn := fmt.Sprintf("%s/binary-%s/Packages.gz", comp, arch)
-		digest, ok := expectedDigests[fn]
-		if !ok {
-			return nil, fmt.Errorf("release is missing %s/%s", comp, arch)
-		}
-		b, err := r.fetchPackages(ctx, digest)
-		if err != nil {
-			return nil, err
-		}
-		gzr, err := gzip.NewReader(bytes.NewReader(b))
-		if err != nil {
-			return nil, err
-		}
-		pkgs, err := r.parser.ParsePackages(ctx, gzr)
-		if err != nil {
-			return nil, err
-		}
+		comp := comp
+		eg.Go(func() error {
+			ctx, span := r.tracer.Start(ctx, "debianremote.LoadPackages.component", trace.WithAttributes(attrComponent(comp)))
+			defer span.End()
+
+			fn := fmt.Sprintf("%s/binary-%s/Packages.gz", comp, arch)
+			digest, ok := expectedDigests[fn]
+			if !ok {
+				return fmt.Errorf("release is missing %s/%s", comp, arch)
+			}
+			b, err := r.fetchPackages(ctx, digest)
+			if err != nil {
+				return err
+			}
+			gzr, err := gzip.NewReader(bytes.NewReader(b))
+			if err != nil {
+				return err
+			}
+			pkgs, err := r.parser.ParsePackages(ctx, gzr)
+			if err != nil {
+				return err
+			}
+			res <- pkgs
+			return nil
+		})
+	}
+	go func() {
+		_ = eg.Wait()
+		close(res)
+	}()
+
+	var allPackages []Package
+	for pkgs := range res {
 		allPackages = append(allPackages, pkgs...)
 	}
-
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
 	return allPackages, nil
 }
 

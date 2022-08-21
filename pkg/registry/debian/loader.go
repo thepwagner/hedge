@@ -37,9 +37,8 @@ func NewFilteredPackageLoader(tracer trace.Tracer, wrapped PackagesLoader, rekor
 
 func (p FilteredPackageLoader) BaseURL() string { return p.wrapped.BaseURL() }
 func (p FilteredPackageLoader) LoadPackages(ctx context.Context, r *Release, arch Architecture) ([]Package, error) {
-	ctx, span := p.tracer.Start(ctx, "debianfilter.LoadPackages")
+	ctx, span := p.tracer.Start(ctx, "debianfilter.LoadPackages", trace.WithAttributes(attrArchitecture(arch)))
 	defer span.End()
-	span.SetAttributes(attrArchitecture.String(string(arch)))
 
 	pkgs, err := p.wrapped.LoadPackages(ctx, r, arch)
 	if err != nil {
