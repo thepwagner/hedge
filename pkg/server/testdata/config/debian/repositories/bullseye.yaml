@@ -5,8 +5,10 @@ source:
     url: https://debian.mirror.rafal.ca/debian/
     release: bullseye
     architectures:
+      - all
       - amd64
     components:
+      - main
       - contrib
       - non-free
     key: |-

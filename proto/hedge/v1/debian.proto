@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package hedge.v1;
+option go_package = "github.com/thepwagner/hedge";
+
+message DebianPackage {
+    string package = 1;
+    string source = 2;
+    string version = 3;
+    uint64 installed_size = 4;
+	// Maintainer       string `json:"maintainer,omitempty"`
+	// DependsRaw       string `json:"-" mapstructure:"Depends"`
+	// PreDepends       string `json:"-" mapstructure:"Pre-Depends"`
+	// Section          string `json:"section,omitempty"`
+	// TagRaw           string `json:"-" mapstructure:"Tag"`
+	// Description      string `json:"description,omitempty"`
+	// Homepage         string `json:"homepage,omitempty"`
+	// Priority         string `json:"priority,omitempty"`
+	// Architecture     string `json:"architecture,omitempty"`
+	// Filename         string `json:"filename,omitempty"`
+	// SizeRaw          string `json:"-" mapstructure:"Size"`
+	// MD5Sum           string `json:"md5sum,omitempty"`
+	// Sha256           string `json:"sha256,omitempty"`
+	// RekorRaw         string `json:"-" mapstructure:"-"`    
+}
+
+message DebianPackages {
+    repeated DebianPackage packages = 1;
+}

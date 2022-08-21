@@ -10,6 +10,7 @@ import (
 	"github.com/thepwagner/hedge/pkg/observability"
 	"github.com/thepwagner/hedge/pkg/registry/debian"
 	"github.com/thepwagner/hedge/pkg/server"
+	"github.com/thepwagner/hedge/proto/hedge/v1"
 	"github.com/urfave/cli/v2"
 )
 
@@ -55,19 +56,36 @@ func SyncCommand(log logr.Logger) *cli.Command {
 
 				// policyDir := filepath.Join(cfgDir, string(eco), "policies")
 
-				debStorage := cached.AsJSON(storage, 1*time.Minute, func(ctx context.Context, cfg *debian.RepositoryConfig) ([]debian.Package, error) {
+				direct := func(ctx context.Context, cfg *debian.RepositoryConfig) (*hedge.DebianPackages, error) {
 					pkgs, err := ep.AllPackages(ctx, cfg)
 					if err != nil {
 						return nil, err
 					}
-					debs := make([]debian.Package, 0, len(pkgs))
-					for _, pkg := range pkgs {
-						debs = append(debs, pkg.(debian.Package))
-					}
-					return debs, nil
-				})
 
-				// debStorage := ep.AllPackages
+					debs := make([]*hedge.DebianPackage, 0, len(pkgs))
+					for _, pkg := range pkgs {
+						deb := pkg.(debian.Package)
+						debs = append(debs, &hedge.DebianPackage{
+							Package:       deb.Package,
+							Source:        deb.Source,
+							Version:       deb.Version,
+							InstalledSize: uint64(deb.InstalledSize()),
+						})
+					}
+					return &hedge.DebianPackages{
+						Packages: debs,
+					}, nil
+				}
+
+				debStorage := cached.Race(tracer, "LoadPackages", map[string]cached.Function[*debian.RepositoryConfig, *hedge.DebianPackages]{
+					"direct":               direct,
+					"cached as json":       cached.AsJSON(tracer, storage, 5*time.Minute, direct),
+					"cached as json+gz":    cached.AsJSON(tracer, cached.Gzipped[string](cached.WithPrefix[[]byte]("gz", storage)), 5*time.Minute, direct),
+					"cached as json+zstd":  cached.AsJSON(tracer, cached.WithZstd[string](cached.WithPrefix[[]byte]("zstd", storage)), 5*time.Minute, direct),
+					"cached as proto":      cached.AsProtoBuf(tracer, cached.WithPrefix[[]byte]("proto", storage), 5*time.Minute, direct),
+					"cached as proto+gz":   cached.AsProtoBuf(tracer, cached.Gzipped[string](cached.WithPrefix[[]byte]("proto_gz", storage)), 5*time.Minute, direct),
+					"cached as proto+zstd": cached.AsProtoBuf(tracer, cached.WithZstd[string](cached.WithPrefix[[]byte]("proto_zstd", storage)), 5*time.Minute, direct),
+				})
 
 				for _, repo := range ecoCfg.Repositories {
 					repoLog := ecoLog.WithValues("repository", repo.Name()).V(1)
@@ -76,7 +94,7 @@ func SyncCommand(log logr.Logger) *cli.Command {
 					if err != nil {
 						return err
 					}
-					repoLog.Info("loaded packages repository", "package_count", len(allPackages))
+					repoLog.Info("loaded packages repository", "package_count", len(allPackages.Packages))
 
 					// ctx, filterSpan := tracer.Start(ctx, "FilterPackages")
 					// pred, err := filter.CueConfigToPredicate[registry.Package](policyDir, repo.FilterConfig())
