@@ -3,22 +3,25 @@ package debian_test
 import (
 	"bytes"
 	"context"
-	"io/ioutil"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/thepwagner/hedge/pkg/registry/debian"
 )
 
 func TestParseRelease(t *testing.T) {
-	verifyingKey, err := debian.ReadArmoredKeyRingFile("testdata/bullseye_pubkey.txt")
+	keyData, err := os.ReadFile("testdata/bullseye_pubkey.txt")
 	require.NoError(t, err)
-	b, err := ioutil.ReadFile("testdata/bullseye_InRelease")
+	key, err := openpgp.ReadArmoredKeyRing(bytes.NewReader(keyData))
+	require.NoError(t, err)
+	b, err := os.ReadFile("testdata/bullseye_InRelease")
 	require.NoError(t, err)
 
-	rg, err := debian.ParseReleaseFile(b, verifyingKey)
+	rg, err := debian.ParseReleaseFile(b, key)
 	require.NoError(t, err)
 	r, err := debian.ReleaseFromParagraph(rg)
 	require.NoError(t, err)

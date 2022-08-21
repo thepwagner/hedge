@@ -2,6 +2,7 @@ package filter_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -55,17 +56,21 @@ func TestMatchesCue(t *testing.T) {
 
 	for fn, tc := range cases {
 		t.Run(fn, func(t *testing.T) {
-			pred, err := filter.MatchesCue[TestPackage](fn)
+			pred, err := filter.MatchesCue(fn)
 			require.NoError(t, err)
 
 			for _, pkg := range tc.expectedSuccess {
-				actual, err := pred(ctx, pkg)
+				b, err := json.Marshal(pkg)
+				require.NoError(t, err)
+				actual, err := pred(ctx, b)
 				require.NoError(t, err)
 				assert.True(t, actual)
 			}
 
 			for i, pkg := range tc.expectedFail {
-				actual, err := pred(ctx, pkg)
+				b, err := json.Marshal(pkg)
+				require.NoError(t, err)
+				actual, err := pred(ctx, b)
 				require.NoError(t, err)
 				assert.False(t, actual, "failed case %d", i)
 			}
@@ -74,9 +79,9 @@ func TestMatchesCue(t *testing.T) {
 }
 
 func TestMatchesCue_ParseEarly(t *testing.T) {
-	_, err := filter.MatchesCue[TestPackage]("testdata/invalid.cue")
+	_, err := filter.MatchesCue("testdata/invalid.cue")
 	assert.Error(t, err)
 
-	_, err = filter.MatchesCue[TestPackage]("testdata/empty.cue")
+	_, err = filter.MatchesCue("testdata/empty.cue")
 	assert.Error(t, err)
 }
