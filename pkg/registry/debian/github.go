@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/go-github/v45/github"
+	"github.com/thepwagner/hedge/pkg/registry"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -64,12 +65,12 @@ type githubRepoConfig struct {
 
 func (gh GitHubPackagesLoader) BaseURL() string { return "https://github.com/" }
 
-func (gh GitHubPackagesLoader) LoadPackages(ctx context.Context, arch Architecture) ([]Package, error) {
+func (gh GitHubPackagesLoader) LoadPackages(ctx context.Context, arch Architecture) ([]registry.Package, error) {
 	ctx, span := gh.tracer.Start(ctx, "githubloader.LoadPackages")
 	defer span.End()
 
 	archRE := regexp.MustCompile(fmt.Sprintf("[-_]%s\\.deb$", arch))
-	var packages []Package
+	var packages []registry.Package
 	for _, repo := range gh.ghRepos {
 		releases, _, err := gh.github.Repositories.ListReleases(ctx, repo.owner, repo.name, nil)
 		if err != nil {

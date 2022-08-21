@@ -2,7 +2,6 @@ package filter
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"cuelang.org/go/cue"
@@ -12,7 +11,7 @@ import (
 	cuejson "cuelang.org/go/encoding/json"
 )
 
-func MatchesCue[T any](entrypoints ...string) (Predicate[T], error) {
+func MatchesCue(entrypoints ...string) (Predicate[[]byte], error) {
 	ctx := cuecontext.New()
 	instances := load.Instances(entrypoints, nil)
 
@@ -41,13 +40,8 @@ func MatchesCue[T any](entrypoints ...string) (Predicate[T], error) {
 		return nil, fmt.Errorf("no values loaded")
 	}
 
-	return func(ctx context.Context, pkg T) (bool, error) {
+	return func(ctx context.Context, b []byte) (bool, error) {
 		// Even though it's inefficient, JSON intermediates are grokable.
-		b, err := json.Marshal(pkg)
-		if err != nil {
-			return false, fmt.Errorf("json error: %w", err)
-		}
-
 		for _, val := range values {
 			if err := cuejson.Validate(b, val); err != nil {
 				var errs errors.Error

@@ -1,6 +1,9 @@
 package filter
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 type Predicate[T any] func(context.Context, T) (bool, error)
 
@@ -20,8 +23,11 @@ func AnyOf[T any](preds ...Predicate[T]) Predicate[T] {
 }
 
 func FilterSlice[T any](ctx context.Context, pred Predicate[T], in ...T) ([]T, error) {
-	result := make([]T, 0, len(in))
-	for _, t := range in {
+	var result []T
+	for i, t := range in {
+		if i%100 == 0 {
+			fmt.Println(i)
+		}
 		ok, err := pred(ctx, t)
 		if err != nil {
 			return nil, err

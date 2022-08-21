@@ -16,7 +16,7 @@ type ReleaseLoader interface {
 
 type PackagesLoader interface {
 	BaseURL() string
-	LoadPackages(ctx context.Context, arch Architecture) ([]Package, error)
+	LoadPackages(ctx context.Context, r *Release, arch Architecture) ([]Package, error)
 }
 
 type FilteredPackageLoader struct {
@@ -36,12 +36,12 @@ func NewFilteredPackageLoader(tracer trace.Tracer, wrapped PackagesLoader, rekor
 }
 
 func (p FilteredPackageLoader) BaseURL() string { return p.wrapped.BaseURL() }
-func (p FilteredPackageLoader) LoadPackages(ctx context.Context, arch Architecture) ([]Package, error) {
+func (p FilteredPackageLoader) LoadPackages(ctx context.Context, r *Release, arch Architecture) ([]Package, error) {
 	ctx, span := p.tracer.Start(ctx, "debianfilter.LoadPackages")
 	defer span.End()
 	span.SetAttributes(attrArchitecture.String(string(arch)))
 
-	pkgs, err := p.wrapped.LoadPackages(ctx, arch)
+	pkgs, err := p.wrapped.LoadPackages(ctx, r, arch)
 	if err != nil {
 		return nil, err
 	}

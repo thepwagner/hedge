@@ -5,20 +5,10 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-const (
-	flagConfigDirectory = "config-directory"
-)
-
 func ServerCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "server",
 		Usage: "Run the server",
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:  flagConfigDirectory,
-				Value: "./pkg/server/testdata/config/",
-			},
-		},
 		Action: func(c *cli.Context) error {
 			cfgDir := c.String(flagConfigDirectory)
 

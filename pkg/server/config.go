@@ -16,7 +16,7 @@ type Config struct {
 	Addr           string
 	ConfigDir      string
 	TracerEndpoint string
-	RedisURL       string
+	RedisAddr      string
 
 	Ecosystems map[registry.Ecosystem]registry.EcosystemConfig
 }
@@ -28,11 +28,12 @@ const (
 
 // LoadConfig loads server configuration from the given directory.
 func LoadConfig(dir string) (*Config, error) {
+	ecosystems := Ecosystems(nil, nil, nil)
 	cfg := Config{
 		Addr:           ":8080",
 		ConfigDir:      dir,
 		TracerEndpoint: "http://riker.pwagner.net:14268/api/traces",
-		RedisURL:       "localhost:6379",
+		RedisAddr:      "localhost:6379",
 		Ecosystems:     make(map[registry.Ecosystem]registry.EcosystemConfig, len(ecosystems)),
 	}
 
@@ -110,7 +111,7 @@ func loadRepositories(ep registry.EcosystemProvider, repoDir string) (map[string
 func loadPolicyFiles(repos map[string]registry.RepositoryConfig, policyDir string) (map[string]string, error) {
 	policies := make(map[string]string)
 	for _, repoCfg := range repos {
-		for _, policyName := range repoCfg.PolicyNames() {
+		for _, policyName := range repoCfg.FilterConfig().PolicyNames() {
 			b, err := os.ReadFile(filepath.Join(policyDir, policyName))
 			if err != nil {
 				return nil, err

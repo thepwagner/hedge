@@ -18,7 +18,6 @@ import (
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/thepwagner/hedge/pkg/cache"
-	"github.com/thepwagner/hedge/pkg/registry"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -41,13 +40,11 @@ type RemoteReleaseLoader struct {
 
 type RemotePackagesLoader struct {
 	remoteLoader
-	packageCache  cache.Cache[[]Package]
-	cacheDuration time.Duration
-	releases      ReleaseLoader
-	parser        PackageParser
+	releases ReleaseLoader
+	parser   PackageParser
 }
 
-func NewRemoteLoader(args registry.HandlerArgs, cfg UpstreamConfig) (*RemoteReleaseLoader, *RemotePackagesLoader, error) {
+func NewRemoteLoader(tracer trace.Tracer, client *http.Client, storage cache.Storage, cfg UpstreamConfig) (*RemoteReleaseLoader, *RemotePackagesLoader, error) {
 	if cfg.Release == "" {
 		return nil, nil, fmt.Errorf("missing release")
 	}
@@ -74,9 +71,9 @@ func NewRemoteLoader(args registry.HandlerArgs, cfg UpstreamConfig) (*RemoteRele
 	}
 
 	rl := remoteLoader{
-		tracer:     args.Tracer,
-		client:     args.Client,
-		urlCache:   cache.Prefix[[]byte]("debian_urls", args.Untrusted),
+		tracer:     tracer,
+		client:     client,
+		urlCache:   cache.Prefix[[]byte]("debian_urls", storage),
 		baseURL:    baseURL,
 		dist:       cfg.Release,
 		components: components,
@@ -88,11 +85,9 @@ func NewRemoteLoader(args registry.HandlerArgs, cfg UpstreamConfig) (*RemoteRele
 		cacheDuration: 5 * time.Minute,
 	}
 	packages := &RemotePackagesLoader{
-		remoteLoader:  rl,
-		releases:      releases,
-		packageCache:  cache.Prefix[[]Package]("debian_packages", cache.NewJSONCache[[]Package](cache.NewGzipStorage(args.Trusted))),
-		cacheDuration: 5 * time.Minute,
-		parser:        PackageParser{tracer: args.Tracer},
+		remoteLoader: rl,
+		releases:     releases,
+		parser:       PackageParser{tracer: tracer},
 	}
 	return releases, packages, nil
 }
@@ -169,19 +164,12 @@ func (r *RemotePackagesLoader) BaseURL() string {
 	return r.baseURL + "pool/"
 }
 
-func (r *RemotePackagesLoader) LoadPackages(ctx context.Context, arch Architecture) ([]Package, error) {
-	cacheKey := fmt.Sprintf("%s:%s", r.baseURL, arch)
-	if packages, err := r.packageCache.Get(ctx, cacheKey); err == nil {
-		return packages, nil
-	} else if err != nil && !errors.Is(err, cache.ErrNotFound) {
-		return nil, err
-	}
-
+func (r *RemotePackagesLoader) LoadPackages(ctx context.Context, release *Release, arch Architecture) ([]Package, error) {
 	ctx, span := r.tracer.Start(ctx, "debianremote.LoadPackages")
 	defer span.End()
 	span.SetAttributes(attrArchitecture.String(string(arch)))
 
-	expectedDigests, err := r.fileMetadata(ctx)
+	expectedDigests, err := r.fileMetadata(ctx, release)
 	if err != nil {
 		return nil, err
 	}
@@ -208,19 +196,12 @@ func (r *RemotePackagesLoader) LoadPackages(ctx context.Context, arch Architectu
 		allPackages = append(allPackages, pkgs...)
 	}
 
-	if err := r.packageCache.Set(ctx, cacheKey, allPackages, r.cacheDuration); err != nil {
-		return nil, err
-	}
 	return allPackages, nil
 }
 
 var digestRE = regexp.MustCompile(`([0-9a-f]{64})\s+([0-9]+)\s+([^ ]+)$`)
 
-func (r *RemotePackagesLoader) fileMetadata(ctx context.Context) (map[string]PackagesDigest, error) {
-	release, err := r.releases.Load(ctx)
-	if err != nil {
-		return nil, err
-	}
+func (r *RemotePackagesLoader) fileMetadata(ctx context.Context, release *Release) (map[string]PackagesDigest, error) {
 	lines := strings.Split(release.SHA256, "\n")
 	digests := make(map[string]PackagesDigest, len(lines))
 	for _, line := range lines {

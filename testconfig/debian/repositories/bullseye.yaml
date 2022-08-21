@@ -69,6 +69,6 @@ source:
 
 policies:
   anyOf:
-    - nethack.cue
     - required.cue
-    - vim.cue
+    # - nethack.cue
+    # - vim.cue

@@ -3,7 +3,6 @@ package cache
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/go-redis/redis/v9"
@@ -15,14 +14,16 @@ type Redis struct {
 
 var _ Storage = (*Redis)(nil)
 
-func NewRedis(redis *redis.Client) *Redis {
-	return &Redis{redis: redis}
+func NewRedis(addr string) *Redis {
+	redisC := redis.NewClient(&redis.Options{
+		Addr: addr,
+	})
+	return &Redis{redis: redisC}
 }
 
 func (r *Redis) Get(ctx context.Context, key string) ([]byte, error) {
 	b, err := r.redis.Get(ctx, key).Bytes()
 	if err == nil {
-		fmt.Println(key, len(b))
 		return b, nil
 	}
 	if errors.Is(err, redis.Nil) {

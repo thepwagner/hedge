@@ -3,8 +3,8 @@ package npm
 import "github.com/thepwagner/hedge/pkg/filter"
 
 type RepositoryConfig struct {
-	Source   SourceConfig     `yaml:"source"`
-	Policies filter.CueConfig `yaml:"policies"`
+	Source   SourceConfig  `yaml:"source"`
+	Policies filter.Config `yaml:"policies"`
 
 	NameRaw string `yaml:"name"`
 	Key     string

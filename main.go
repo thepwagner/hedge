@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"time"
 
 	"github.com/go-logr/zerologr"
 	"github.com/rs/zerolog"
@@ -9,7 +10,9 @@ import (
 )
 
 func main() {
-	zl := zerolog.New(zerolog.NewConsoleWriter())
+	zl := zerolog.New(zerolog.NewConsoleWriter(func(w *zerolog.ConsoleWriter) {
+		w.TimeFormat = time.RFC3339Nano
+	})).With().Timestamp().Logger()
 	log := zerologr.New(&zl)
 
 	app := cli.App(log)

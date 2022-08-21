@@ -6,8 +6,8 @@ import (
 )
 
 type RepositoryConfig struct {
-	Source   SourceConfig     `yaml:"source"`
-	Policies filter.CueConfig `yaml:"policies"`
+	Source   SourceConfig  `yaml:"source"`
+	Policies filter.Config `yaml:"policies"`
 
 	NameRaw string `yaml:"name"`
 	KeyPath string `yaml:"keyPath"`
@@ -15,9 +15,9 @@ type RepositoryConfig struct {
 
 var _ registry.RepositoryConfig = (*RepositoryConfig)(nil)
 
-func (c RepositoryConfig) Name() string          { return c.NameRaw }
-func (c *RepositoryConfig) SetName(name string)  { c.NameRaw = name }
-func (c RepositoryConfig) PolicyNames() []string { return c.Policies.PolicyNames() }
+func (c RepositoryConfig) Name() string                { return c.NameRaw }
+func (c *RepositoryConfig) SetName(name string)        { c.NameRaw = name }
+func (c RepositoryConfig) FilterConfig() filter.Config { return c.Policies }
 
 // SourceConfig defines where packages are stored.
 type SourceConfig struct {
@@ -34,6 +34,7 @@ type UpstreamConfig struct {
 	Components    []string
 }
 
+// GitHubConfig polls GitHub releases for packages.
 type GitHubConfig struct {
 	Release      Release
 	Repositories []string

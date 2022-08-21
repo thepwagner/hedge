@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/go-redis/redis/v9"
 	"github.com/gorilla/mux"
 	"github.com/thepwagner/hedge/pkg/cache"
 	"github.com/thepwagner/hedge/pkg/observability"
@@ -70,18 +69,14 @@ func newMuxRouter(ctx context.Context, tp *sdktrace.TracerProvider, cfg Config) 
 	r := mux.NewRouter()
 
 	// Use a traced redis cache for storage:
-	redisC := redis.NewClient(&redis.Options{
-		Addr:        cfg.RedisURL,
-		ReadTimeout: -1,
-	})
-	storage := cache.NewRedis(redisC)
+	storage := cache.NewRedis(cfg.RedisAddr)
 	traced := cache.NewTracedCache[[]byte](tracer, storage)
 
 	trusted := cache.NewTrustedStorage(map[string][]byte{
 		"test": []byte("test"),
 	}, "test", traced)
 
-	for _, ep := range ecosystems {
+	for _, ep := range Ecosystems(tracer, client, traced) {
 		eco := ep.Ecosystem()
 		ecoCfg := cfg.Ecosystems[eco]
 		if len(ecoCfg.Repositories) == 0 {

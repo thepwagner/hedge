@@ -1,18 +1,26 @@
 package registry
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gorilla/mux"
 	"github.com/thepwagner/hedge/pkg/cache"
+	"github.com/thepwagner/hedge/pkg/filter"
 	"go.opentelemetry.io/otel/trace"
 )
 
 type Ecosystem string
 
+type Package interface {
+	GetName() string
+}
+
 type EcosystemProvider interface {
 	Ecosystem() Ecosystem
 	BlankRepositoryConfig() RepositoryConfig
+
+	AllPackages(context.Context, RepositoryConfig) ([]Package, error)
 
 	NewHandler(HandlerArgs) (HasRoutes, error)
 }
@@ -28,7 +36,7 @@ type HandlerArgs struct {
 type RepositoryConfig interface {
 	Name() string
 	SetName(string)
-	PolicyNames() []string
+	FilterConfig() filter.Config
 }
 
 // EcosystemConfig is configuration for an ecosystem.
