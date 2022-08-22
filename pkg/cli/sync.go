@@ -48,6 +48,10 @@ func SyncCommand(log logr.Logger) *cli.Command {
 			storage = cached.InRedis(cfg.RedisAddr)
 			storage = cached.WithTracer[string, []byte](tracer, storage)
 
+			signed := cached.NewSignedCache(map[string][]byte{
+				"foo": []byte("bar"),
+			}, "foo", storage)
+
 			for _, ep := range server.Ecosystems(tracer, client, storage) {
 				eco := ep.Ecosystem()
 				ecoLog := log.WithValues("ecosystem", eco)
@@ -78,13 +82,16 @@ func SyncCommand(log logr.Logger) *cli.Command {
 				}
 
 				debStorage := cached.Race(tracer, "LoadPackages", map[string]cached.Function[*debian.RepositoryConfig, *hedge.DebianPackages]{
-					"direct":               direct,
-					"cached as json":       cached.AsJSON(tracer, storage, 5*time.Minute, direct),
-					"cached as json+gz":    cached.AsJSON(tracer, cached.Gzipped[string](cached.WithPrefix[[]byte]("gz", storage)), 5*time.Minute, direct),
-					"cached as json+zstd":  cached.AsJSON(tracer, cached.WithZstd[string](cached.WithPrefix[[]byte]("zstd", storage)), 5*time.Minute, direct),
-					"cached as proto":      cached.AsProtoBuf(tracer, cached.WithPrefix[[]byte]("proto", storage), 5*time.Minute, direct),
-					"cached as proto+gz":   cached.AsProtoBuf(tracer, cached.Gzipped[string](cached.WithPrefix[[]byte]("proto_gz", storage)), 5*time.Minute, direct),
-					"cached as proto+zstd": cached.AsProtoBuf(tracer, cached.WithZstd[string](cached.WithPrefix[[]byte]("proto_zstd", storage)), 5*time.Minute, direct),
+					"direct":                  direct,
+					"redis+json":              cached.AsJSON(storage, 5*time.Minute, direct),
+					"redis+json+gz":           cached.AsJSON(cached.WithGzip[string](cached.WithPrefix[[]byte]("gz", storage)), 5*time.Minute, direct),
+					"redis+json+zstd":         cached.AsJSON(cached.WithZstd[string](cached.WithPrefix[[]byte]("zstd", storage)), 5*time.Minute, direct),
+					"redis+proto":             cached.AsProtoBuf(cached.WithPrefix[[]byte]("proto", storage), 5*time.Minute, direct),
+					"redis+proto+gz":          cached.AsProtoBuf(cached.WithGzip[string](cached.WithPrefix[[]byte]("proto_gz", storage)), 5*time.Minute, direct),
+					"redis+proto+zstd":        cached.AsProtoBuf(cached.WithZstd[string](cached.WithPrefix[[]byte]("proto_zstd", storage)), 5*time.Minute, direct),
+					"redis+signed+proto+zstd": cached.AsProtoBuf(cached.WithZstd[string](cached.WithPrefix[[]byte]("signed_proto_zstd", signed)), 5*time.Minute, direct),
+					// "inmem+json":       cached.AsJSON(tracer, cached.WithPrefix[[]byte]("proto", inMemory), 5*time.Minute, direct),
+					// "inmem+proto":      cached.AsProtoBuf(tracer, cached.WithPrefix[[]byte]("proto", inMemory), 5*time.Minute, direct),
 				})
 
 				for _, repo := range ecoCfg.Repositories {

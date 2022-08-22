@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package hedge.v1;
+option go_package = "github.com/thepwagner/hedge";
+
+message SignedEntry {
+    string key_id = 1;
+    bytes signature = 2;
+    bytes payload = 3;
+}

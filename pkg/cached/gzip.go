@@ -8,15 +8,16 @@ import (
 	"time"
 )
 
+// WithGzip applys gzip compression to every value of a []byte-valued cache.
+func WithGzip[K comparable](cache Cache[K, []byte]) *GzipStorage[K] {
+	return &GzipStorage[K]{cache: cache}
+}
+
 type GzipStorage[K comparable] struct {
 	cache Cache[K, []byte]
 }
 
 var _ Cache[string, []byte] = (*GzipStorage[string])(nil)
-
-func Gzipped[K comparable](cache Cache[K, []byte]) *GzipStorage[K] {
-	return &GzipStorage[K]{cache: cache}
-}
 
 func (g GzipStorage[K]) Get(ctx context.Context, key K) (*[]byte, error) {
 	b, err := g.cache.Get(ctx, key)

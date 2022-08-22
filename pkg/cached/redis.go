@@ -37,3 +37,7 @@ func (r *Redis) Get(ctx context.Context, key string) (*[]byte, error) {
 func (r *Redis) Set(ctx context.Context, key string, b []byte, ttl time.Duration) error {
 	return r.redis.Set(ctx, key, b, durationFromContext(ctx, ttl)).Err()
 }
+
+func (r *Redis) FlushDB(ctx context.Context) error {
+	return r.redis.FlushDB(ctx).Err()
+}

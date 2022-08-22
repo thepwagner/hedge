@@ -2,6 +2,6 @@ version: v1
 managed:
   enabled: true
 plugins:
-  - name: go
+  - name: gogofaster
     out: proto
     opt: paths=source_relative

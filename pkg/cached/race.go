@@ -16,7 +16,7 @@ func Race[K comparable, V any](tracer trace.Tracer, race string, entrants map[st
 
 		res := make(chan V, len(entrants))
 		eg, ctx := errgroup.WithContext(ctx)
-		eg.SetLimit(1)
+		// eg.SetLimit(1)
 		for k, f := range entrants {
 			k := k
 			f := f
