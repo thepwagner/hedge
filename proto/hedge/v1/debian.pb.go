@@ -22,11 +22,25 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
+// DebianPackage is a .deb
 type DebianPackage struct {
-	Package       string `protobuf:"bytes,1,opt,name=package,proto3" json:"package,omitempty"`
-	Source        string `protobuf:"bytes,2,opt,name=source,proto3" json:"source,omitempty"`
-	Version       string `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
-	InstalledSize uint64 `protobuf:"varint,4,opt,name=installed_size,json=installedSize,proto3" json:"installed_size,omitempty"`
+	Package       string   `protobuf:"bytes,1,opt,name=package,proto3" json:"package,omitempty"`
+	Source        string   `protobuf:"bytes,2,opt,name=source,proto3" json:"source,omitempty"`
+	Version       string   `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
+	InstalledSize uint64   `protobuf:"varint,4,opt,name=installed_size,json=installedSize,proto3" json:"installed_size,omitempty"`
+	Maintainer    string   `protobuf:"bytes,5,opt,name=maintainer,proto3" json:"maintainer,omitempty"`
+	Depends       []string `protobuf:"bytes,6,rep,name=depends,proto3" json:"depends,omitempty"`
+	PreDepends    string   `protobuf:"bytes,7,opt,name=pre_depends,json=preDepends,proto3" json:"pre_depends,omitempty"`
+	Section       string   `protobuf:"bytes,8,opt,name=section,proto3" json:"section,omitempty"`
+	Tags          []string `protobuf:"bytes,9,rep,name=tags,proto3" json:"tags,omitempty"`
+	Description   string   `protobuf:"bytes,10,opt,name=description,proto3" json:"description,omitempty"`
+	Homepage      string   `protobuf:"bytes,11,opt,name=homepage,proto3" json:"homepage,omitempty"`
+	Priority      string   `protobuf:"bytes,12,opt,name=priority,proto3" json:"priority,omitempty"`
+	Architecture  string   `protobuf:"bytes,13,opt,name=architecture,proto3" json:"architecture,omitempty"`
+	Filename      string   `protobuf:"bytes,14,opt,name=filename,proto3" json:"filename,omitempty"`
+	Size_         uint64   `protobuf:"varint,15,opt,name=size,proto3" json:"size,omitempty"`
+	Md5Sum        string   `protobuf:"bytes,16,opt,name=md5sum,proto3" json:"md5sum,omitempty"`
+	Sha256        string   `protobuf:"bytes,17,opt,name=sha256,proto3" json:"sha256,omitempty"`
 }
 
 func (m *DebianPackage) Reset()         { *m = DebianPackage{} }
@@ -90,6 +104,98 @@ func (m *DebianPackage) GetInstalledSize() uint64 {
 	return 0
 }
 
+func (m *DebianPackage) GetMaintainer() string {
+	if m != nil {
+		return m.Maintainer
+	}
+	return ""
+}
+
+func (m *DebianPackage) GetDepends() []string {
+	if m != nil {
+		return m.Depends
+	}
+	return nil
+}
+
+func (m *DebianPackage) GetPreDepends() string {
+	if m != nil {
+		return m.PreDepends
+	}
+	return ""
+}
+
+func (m *DebianPackage) GetSection() string {
+	if m != nil {
+		return m.Section
+	}
+	return ""
+}
+
+func (m *DebianPackage) GetTags() []string {
+	if m != nil {
+		return m.Tags
+	}
+	return nil
+}
+
+func (m *DebianPackage) GetDescription() string {
+	if m != nil {
+		return m.Description
+	}
+	return ""
+}
+
+func (m *DebianPackage) GetHomepage() string {
+	if m != nil {
+		return m.Homepage
+	}
+	return ""
+}
+
+func (m *DebianPackage) GetPriority() string {
+	if m != nil {
+		return m.Priority
+	}
+	return ""
+}
+
+func (m *DebianPackage) GetArchitecture() string {
+	if m != nil {
+		return m.Architecture
+	}
+	return ""
+}
+
+func (m *DebianPackage) GetFilename() string {
+	if m != nil {
+		return m.Filename
+	}
+	return ""
+}
+
+func (m *DebianPackage) GetSize_() uint64 {
+	if m != nil {
+		return m.Size_
+	}
+	return 0
+}
+
+func (m *DebianPackage) GetMd5Sum() string {
+	if m != nil {
+		return m.Md5Sum
+	}
+	return ""
+}
+
+func (m *DebianPackage) GetSha256() string {
+	if m != nil {
+		return m.Sha256
+	}
+	return ""
+}
+
+// DebianPackages is a collection of DebianPackage
 type DebianPackages struct {
 	Packages []*DebianPackage `protobuf:"bytes,1,rep,name=packages,proto3" json:"packages,omitempty"`
 }
@@ -142,26 +248,37 @@ func init() {
 func init() { proto.RegisterFile("hedge/v1/debian.proto", fileDescriptor_a2d7bef55e115298) }
 
 var fileDescriptor_a2d7bef55e115298 = []byte{
-	// 300 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x12, 0xcd, 0x48, 0x4d, 0x49,
-	0x4f, 0xd5, 0x2f, 0x33, 0xd4, 0x4f, 0x49, 0x4d, 0xca, 0x4c, 0xcc, 0xd3, 0x2b, 0x28, 0xca, 0x2f,
-	0xc9, 0x17, 0xe2, 0x00, 0x0b, 0xeb, 0x95, 0x19, 0x2a, 0x35, 0x31, 0x72, 0xf1, 0xba, 0x80, 0xa5,
-	0x02, 0x12, 0x93, 0xb3, 0x13, 0xd3, 0x53, 0x85, 0x24, 0xb8, 0xd8, 0x0b, 0x20, 0x4c, 0x09, 0x46,
-	0x05, 0x46, 0x0d, 0xce, 0x20, 0x18, 0x57, 0x48, 0x8c, 0x8b, 0xad, 0x38, 0xbf, 0xb4, 0x28, 0x39,
-	0x55, 0x82, 0x09, 0x2c, 0x01, 0xe5, 0x81, 0x74, 0x94, 0xa5, 0x16, 0x15, 0x67, 0xe6, 0xe7, 0x49,
-	0x30, 0x43, 0x74, 0x40, 0xb9, 0x42, 0xaa, 0x5c, 0x7c, 0x99, 0x79, 0xc5, 0x25, 0x89, 0x39, 0x39,
-	0xa9, 0x29, 0xf1, 0xc5, 0x99, 0x55, 0xa9, 0x12, 0x2c, 0x0a, 0x8c, 0x1a, 0x2c, 0x41, 0xbc, 0x70,
-	0xd1, 0xe0, 0xcc, 0xaa, 0x54, 0x25, 0x57, 0x2e, 0x3e, 0x14, 0x37, 0x14, 0x0b, 0x19, 0x73, 0x71,
-	0x40, 0x6d, 0x2d, 0x96, 0x60, 0x54, 0x60, 0xd6, 0xe0, 0x36, 0x12, 0xd7, 0x83, 0xb9, 0x59, 0x0f,
-	0x45, 0x6d, 0x10, 0x5c, 0xa1, 0xd3, 0x44, 0xc6, 0x13, 0x8f, 0xe4, 0x18, 0x2f, 0x3c, 0x92, 0x63,
-	0x7c, 0xf0, 0x48, 0x8e, 0x71, 0xc2, 0x63, 0x39, 0x86, 0x0b, 0x8f, 0xe5, 0x18, 0x6e, 0x3c, 0x96,
-	0x63, 0xe0, 0xe2, 0x49, 0xce, 0xcf, 0x85, 0x1b, 0xe0, 0xc4, 0x0d, 0x35, 0x01, 0x14, 0x16, 0x01,
-	0x8c, 0x51, 0xd2, 0xe9, 0x99, 0x25, 0x19, 0xa5, 0x49, 0x7a, 0xc9, 0xf9, 0xb9, 0xfa, 0x25, 0x19,
-	0xa9, 0x05, 0xe5, 0x89, 0xe9, 0x79, 0xa9, 0x45, 0xfa, 0x60, 0xe5, 0x8b, 0x98, 0x98, 0x3d, 0x22,
-	0x22, 0x56, 0x31, 0x71, 0x78, 0x80, 0x35, 0x87, 0x19, 0x9e, 0x82, 0x32, 0x63, 0xc2, 0x0c, 0x1f,
-	0x31, 0x89, 0xc0, 0x98, 0x31, 0xee, 0x01, 0x4e, 0xbe, 0xa9, 0x25, 0x89, 0x29, 0x89, 0x25, 0x89,
-	0xaf, 0x98, 0x38, 0xc1, 0xc2, 0x56, 0x56, 0x61, 0x86, 0x49, 0x6c, 0xe0, 0x00, 0x37, 0x06, 0x04,
-	0x00, 0x00, 0xff, 0xff, 0x4d, 0x22, 0xd4, 0x4f, 0x89, 0x01, 0x00, 0x00,
+	// 478 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x54, 0x52, 0xcd, 0x8a, 0x13, 0x4d,
+	0x14, 0x4d, 0xa7, 0xf3, 0x25, 0x9d, 0xea, 0x24, 0x9f, 0x16, 0xfe, 0x14, 0x0a, 0x6d, 0x13, 0x10,
+	0xb2, 0xea, 0xd0, 0x33, 0x8c, 0x8b, 0x59, 0x86, 0x11, 0x67, 0x23, 0x84, 0x08, 0x61, 0x90, 0x81,
+	0xa1, 0xd2, 0x7d, 0xed, 0x2e, 0x4c, 0xff, 0x50, 0x55, 0x89, 0x38, 0x4f, 0xa1, 0xaf, 0xe0, 0xd2,
+	0x27, 0x11, 0x57, 0xb3, 0x74, 0x29, 0xc9, 0x4a, 0x9f, 0x42, 0xea, 0x76, 0x77, 0x98, 0xec, 0xee,
+	0x39, 0xe7, 0x9e, 0x5b, 0xc5, 0x3d, 0x97, 0x3c, 0x4e, 0x21, 0x4e, 0x60, 0xba, 0x0d, 0xa7, 0x31,
+	0xac, 0x04, 0xcf, 0x83, 0x52, 0x16, 0xba, 0xa0, 0x0e, 0xd2, 0xc1, 0x36, 0x1c, 0xff, 0xb1, 0xc9,
+	0xf0, 0x02, 0xa5, 0x39, 0x8f, 0x3e, 0xf2, 0x04, 0x28, 0x23, 0xbd, 0xb2, 0x2a, 0x99, 0xe5, 0x5b,
+	0x93, 0xfe, 0xa2, 0x81, 0xf4, 0x09, 0xe9, 0xaa, 0x62, 0x23, 0x23, 0x60, 0x6d, 0x14, 0x6a, 0x64,
+	0x1c, 0x5b, 0x90, 0x4a, 0x14, 0x39, 0xb3, 0x2b, 0x47, 0x0d, 0xe9, 0x4b, 0x32, 0x12, 0xb9, 0xd2,
+	0x7c, 0xbd, 0x86, 0xf8, 0x46, 0x89, 0x5b, 0x60, 0x1d, 0xdf, 0x9a, 0x74, 0x16, 0xc3, 0x03, 0xfb,
+	0x4e, 0xdc, 0x02, 0xf5, 0x08, 0xc9, 0xb8, 0xc8, 0x35, 0x17, 0x39, 0x48, 0xf6, 0x1f, 0xce, 0xb8,
+	0xc7, 0x98, 0x07, 0x62, 0x28, 0x21, 0x8f, 0x15, 0xeb, 0xfa, 0xb6, 0x79, 0xa0, 0x86, 0xf4, 0x05,
+	0x71, 0x4b, 0x09, 0x37, 0x8d, 0xda, 0xab, 0xac, 0xa5, 0x84, 0x8b, 0xba, 0x81, 0x91, 0x9e, 0x82,
+	0x48, 0x9b, 0xbf, 0x39, 0xd5, 0xdf, 0x6a, 0x48, 0x29, 0xe9, 0x68, 0x9e, 0x28, 0xd6, 0xc7, 0x89,
+	0x58, 0x53, 0x9f, 0xb8, 0x31, 0xa8, 0x48, 0x8a, 0x12, 0x1d, 0x04, 0x1d, 0xf7, 0x29, 0xfa, 0x8c,
+	0x38, 0x69, 0x91, 0x41, 0x69, 0xd6, 0xe3, 0xa2, 0x7c, 0xc0, 0x46, 0x2b, 0xa5, 0x28, 0xa4, 0xd0,
+	0x9f, 0xd9, 0xa0, 0xd2, 0x1a, 0x4c, 0xc7, 0x64, 0xc0, 0x65, 0x94, 0x0a, 0x0d, 0x91, 0xde, 0x48,
+	0x60, 0x43, 0xd4, 0x8f, 0x38, 0xe3, 0xff, 0x20, 0xd6, 0x90, 0xf3, 0x0c, 0xd8, 0xa8, 0xf2, 0x37,
+	0xd8, 0xfc, 0x16, 0xf7, 0xf7, 0x3f, 0xee, 0x0f, 0x6b, 0x93, 0x47, 0x16, 0x9f, 0xa9, 0x4d, 0xc6,
+	0x1e, 0x54, 0x79, 0x54, 0x08, 0x73, 0x4a, 0xf9, 0xc9, 0xd9, 0x2b, 0xf6, 0xb0, 0xce, 0x09, 0xd1,
+	0xf8, 0x35, 0x19, 0x1d, 0x45, 0xad, 0xe8, 0x29, 0x71, 0xea, 0x70, 0x15, 0xb3, 0x7c, 0x7b, 0xe2,
+	0x9e, 0x3c, 0x0d, 0x9a, 0xd3, 0x08, 0x8e, 0x7a, 0x17, 0x87, 0xc6, 0xd9, 0x57, 0xeb, 0xc7, 0xce,
+	0xb3, 0xee, 0x76, 0x9e, 0xf5, 0x7b, 0xe7, 0x59, 0x5f, 0xf6, 0x5e, 0xeb, 0x6e, 0xef, 0xb5, 0x7e,
+	0xed, 0xbd, 0x16, 0x19, 0x44, 0x45, 0x76, 0x18, 0x30, 0x73, 0xeb, 0x09, 0xe6, 0xe4, 0xe6, 0xd6,
+	0xfb, 0xe7, 0x89, 0xd0, 0xe9, 0x66, 0x15, 0x44, 0x45, 0x36, 0xd5, 0x29, 0x94, 0x9f, 0x78, 0x92,
+	0x83, 0x9c, 0x62, 0xfb, 0xb7, 0xb6, 0x7d, 0x79, 0x75, 0xf5, 0xbd, 0xed, 0x5c, 0xa2, 0x79, 0x19,
+	0xfe, 0xac, 0xcb, 0xeb, 0x65, 0xb8, 0x6b, 0x3f, 0x6a, 0xca, 0xeb, 0x37, 0xf3, 0xd9, 0x5b, 0xd0,
+	0x3c, 0xe6, 0x9a, 0xff, 0x6d, 0xf7, 0x91, 0x3e, 0x3f, 0x5f, 0x86, 0xab, 0x2e, 0xde, 0xf5, 0xe9,
+	0xbf, 0x00, 0x00, 0x00, 0xff, 0xff, 0x46, 0x09, 0x81, 0x03, 0xf0, 0x02, 0x00, 0x00,
 }
 
 func (m *DebianPackage) Marshal() (dAtA []byte, err error) {
@@ -184,6 +301,103 @@ func (m *DebianPackage) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if len(m.Sha256) > 0 {
+		i -= len(m.Sha256)
+		copy(dAtA[i:], m.Sha256)
+		i = encodeVarintDebian(dAtA, i, uint64(len(m.Sha256)))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0x8a
+	}
+	if len(m.Md5Sum) > 0 {
+		i -= len(m.Md5Sum)
+		copy(dAtA[i:], m.Md5Sum)
+		i = encodeVarintDebian(dAtA, i, uint64(len(m.Md5Sum)))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0x82
+	}
+	if m.Size_ != 0 {
+		i = encodeVarintDebian(dAtA, i, uint64(m.Size_))
+		i--
+		dAtA[i] = 0x78
+	}
+	if len(m.Filename) > 0 {
+		i -= len(m.Filename)
+		copy(dAtA[i:], m.Filename)
+		i = encodeVarintDebian(dAtA, i, uint64(len(m.Filename)))
+		i--
+		dAtA[i] = 0x72
+	}
+	if len(m.Architecture) > 0 {
+		i -= len(m.Architecture)
+		copy(dAtA[i:], m.Architecture)
+		i = encodeVarintDebian(dAtA, i, uint64(len(m.Architecture)))
+		i--
+		dAtA[i] = 0x6a
+	}
+	if len(m.Priority) > 0 {
+		i -= len(m.Priority)
+		copy(dAtA[i:], m.Priority)
+		i = encodeVarintDebian(dAtA, i, uint64(len(m.Priority)))
+		i--
+		dAtA[i] = 0x62
+	}
+	if len(m.Homepage) > 0 {
+		i -= len(m.Homepage)
+		copy(dAtA[i:], m.Homepage)
+		i = encodeVarintDebian(dAtA, i, uint64(len(m.Homepage)))
+		i--
+		dAtA[i] = 0x5a
+	}
+	if len(m.Description) > 0 {
+		i -= len(m.Description)
+		copy(dAtA[i:], m.Description)
+		i = encodeVarintDebian(dAtA, i, uint64(len(m.Description)))
+		i--
+		dAtA[i] = 0x52
+	}
+	if len(m.Tags) > 0 {
+		for iNdEx := len(m.Tags) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.Tags[iNdEx])
+			copy(dAtA[i:], m.Tags[iNdEx])
+			i = encodeVarintDebian(dAtA, i, uint64(len(m.Tags[iNdEx])))
+			i--
+			dAtA[i] = 0x4a
+		}
+	}
+	if len(m.Section) > 0 {
+		i -= len(m.Section)
+		copy(dAtA[i:], m.Section)
+		i = encodeVarintDebian(dAtA, i, uint64(len(m.Section)))
+		i--
+		dAtA[i] = 0x42
+	}
+	if len(m.PreDepends) > 0 {
+		i -= len(m.PreDepends)
+		copy(dAtA[i:], m.PreDepends)
+		i = encodeVarintDebian(dAtA, i, uint64(len(m.PreDepends)))
+		i--
+		dAtA[i] = 0x3a
+	}
+	if len(m.Depends) > 0 {
+		for iNdEx := len(m.Depends) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.Depends[iNdEx])
+			copy(dAtA[i:], m.Depends[iNdEx])
+			i = encodeVarintDebian(dAtA, i, uint64(len(m.Depends[iNdEx])))
+			i--
+			dAtA[i] = 0x32
+		}
+	}
+	if len(m.Maintainer) > 0 {
+		i -= len(m.Maintainer)
+		copy(dAtA[i:], m.Maintainer)
+		i = encodeVarintDebian(dAtA, i, uint64(len(m.Maintainer)))
+		i--
+		dAtA[i] = 0x2a
+	}
 	if m.InstalledSize != 0 {
 		i = encodeVarintDebian(dAtA, i, uint64(m.InstalledSize))
 		i--
@@ -281,6 +495,61 @@ func (m *DebianPackage) Size() (n int) {
 	}
 	if m.InstalledSize != 0 {
 		n += 1 + sovDebian(uint64(m.InstalledSize))
+	}
+	l = len(m.Maintainer)
+	if l > 0 {
+		n += 1 + l + sovDebian(uint64(l))
+	}
+	if len(m.Depends) > 0 {
+		for _, s := range m.Depends {
+			l = len(s)
+			n += 1 + l + sovDebian(uint64(l))
+		}
+	}
+	l = len(m.PreDepends)
+	if l > 0 {
+		n += 1 + l + sovDebian(uint64(l))
+	}
+	l = len(m.Section)
+	if l > 0 {
+		n += 1 + l + sovDebian(uint64(l))
+	}
+	if len(m.Tags) > 0 {
+		for _, s := range m.Tags {
+			l = len(s)
+			n += 1 + l + sovDebian(uint64(l))
+		}
+	}
+	l = len(m.Description)
+	if l > 0 {
+		n += 1 + l + sovDebian(uint64(l))
+	}
+	l = len(m.Homepage)
+	if l > 0 {
+		n += 1 + l + sovDebian(uint64(l))
+	}
+	l = len(m.Priority)
+	if l > 0 {
+		n += 1 + l + sovDebian(uint64(l))
+	}
+	l = len(m.Architecture)
+	if l > 0 {
+		n += 1 + l + sovDebian(uint64(l))
+	}
+	l = len(m.Filename)
+	if l > 0 {
+		n += 1 + l + sovDebian(uint64(l))
+	}
+	if m.Size_ != 0 {
+		n += 1 + sovDebian(uint64(m.Size_))
+	}
+	l = len(m.Md5Sum)
+	if l > 0 {
+		n += 2 + l + sovDebian(uint64(l))
+	}
+	l = len(m.Sha256)
+	if l > 0 {
+		n += 2 + l + sovDebian(uint64(l))
 	}
 	return n
 }
@@ -450,6 +719,409 @@ func (m *DebianPackage) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Maintainer", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDebian
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDebian
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDebian
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Maintainer = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Depends", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDebian
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDebian
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDebian
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Depends = append(m.Depends, string(dAtA[iNdEx:postIndex]))
+			iNdEx = postIndex
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PreDepends", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDebian
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDebian
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDebian
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.PreDepends = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 8:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Section", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDebian
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDebian
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDebian
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Section = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Tags", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDebian
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDebian
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDebian
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Tags = append(m.Tags, string(dAtA[iNdEx:postIndex]))
+			iNdEx = postIndex
+		case 10:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Description", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDebian
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDebian
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDebian
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Description = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 11:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Homepage", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDebian
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDebian
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDebian
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Homepage = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 12:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Priority", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDebian
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDebian
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDebian
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Priority = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 13:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Architecture", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDebian
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDebian
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDebian
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Architecture = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 14:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Filename", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDebian
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDebian
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDebian
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Filename = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 15:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Size_", wireType)
+			}
+			m.Size_ = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDebian
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Size_ |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 16:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Md5Sum", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDebian
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDebian
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDebian
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Md5Sum = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 17:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Sha256", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowDebian
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthDebian
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthDebian
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Sha256 = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipDebian(dAtA[iNdEx:])

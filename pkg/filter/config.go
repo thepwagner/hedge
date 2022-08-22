@@ -31,6 +31,7 @@ func CueConfigToPredicate[T any](root string, cfg Config) (Predicate[T], error) 
 		if err != nil {
 			return false, fmt.Errorf("json error: %w", err)
 		}
+		fmt.Println(string(b))
 		return pred(ctx, b)
 	}, nil
 }

@@ -3,8 +3,9 @@ syntax = "proto3";
 package hedge.v1;
 option go_package = "github.com/thepwagner/hedge";
 
+// SignedEntry wraps a payload with message authentication
 message SignedEntry {
-    string key_id = 1;
-    bytes signature = 2;
-    bytes payload = 3;
+  string key_id = 1;
+  bytes signature = 2;
+  bytes payload = 3;
 }
