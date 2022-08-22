@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,7 +30,7 @@ func TestAsJSON(t *testing.T) {
 	}
 
 	fakeRedis := cached.InMemory[string, []byte]()
-	cachedExpensiveThing := cached.AsJSON(fakeRedis, time.Minute, expensiveThing)
+	cachedExpensiveThing := cached.Wrap(fakeRedis, expensiveThing)
 
 	ctx := context.Background()
 	for i := 0; i < 5; i++ {
@@ -50,7 +49,7 @@ func TestAsProtoBuf(t *testing.T) {
 	}
 
 	fakeRedis := cached.InMemory[string, []byte]()
-	cachedExpensiveThing := cached.AsProtoBuf(fakeRedis, time.Minute, expensiveThing)
+	cachedExpensiveThing := cached.Wrap(fakeRedis, expensiveThing, cached.AsProtoBuf[int, *hedge.SignedEntry]())
 
 	ctx := context.Background()
 	for i := 0; i < 5; i++ {

@@ -47,6 +47,8 @@ type RemotePackagesLoader struct {
 	parser   PackageParser
 }
 
+const defaultURLCacheTime = 1 * time.Hour
+
 func NewRemoteLoader(tracer trace.Tracer, client *http.Client, storage cached.ByteStorage, cfg UpstreamConfig) (*RemoteReleaseLoader, *RemotePackagesLoader, error) {
 	if cfg.Release == "" {
 		return nil, nil, fmt.Errorf("missing release")
@@ -80,7 +82,7 @@ func NewRemoteLoader(tracer trace.Tracer, client *http.Client, storage cached.By
 		dist:       cfg.Release,
 		components: components,
 	}
-	rl.fetchURL = cached.Cached[string, []byte](cached.WithPrefix[[]byte]("debian_urls", storage), 5*time.Minute, rl.FetchURL)
+	rl.fetchURL = cached.Cached[string, []byte](cached.WithPrefix[string, []byte]("debian_urls", storage), defaultURLCacheTime, rl.FetchURL)
 
 	releases := &RemoteReleaseLoader{
 		remoteLoader:  rl,

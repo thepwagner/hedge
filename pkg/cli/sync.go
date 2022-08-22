@@ -83,15 +83,13 @@ func SyncCommand(log logr.Logger) *cli.Command {
 
 				debStorage := cached.Race(tracer, "LoadPackages", map[string]cached.Function[*debian.RepositoryConfig, *hedge.DebianPackages]{
 					"direct":                  direct,
-					"redis+json":              cached.AsJSON(storage, 5*time.Minute, direct),
-					"redis+json+gz":           cached.AsJSON(cached.WithGzip[string](cached.WithPrefix[[]byte]("gz", storage)), 5*time.Minute, direct),
-					"redis+json+zstd":         cached.AsJSON(cached.WithZstd[string](cached.WithPrefix[[]byte]("zstd", storage)), 5*time.Minute, direct),
-					"redis+proto":             cached.AsProtoBuf(cached.WithPrefix[[]byte]("proto", storage), 5*time.Minute, direct),
-					"redis+proto+gz":          cached.AsProtoBuf(cached.WithGzip[string](cached.WithPrefix[[]byte]("proto_gz", storage)), 5*time.Minute, direct),
-					"redis+proto+zstd":        cached.AsProtoBuf(cached.WithZstd[string](cached.WithPrefix[[]byte]("proto_zstd", storage)), 5*time.Minute, direct),
-					"redis+signed+proto+zstd": cached.AsProtoBuf(cached.WithZstd[string](cached.WithPrefix[[]byte]("signed_proto_zstd", signed)), 5*time.Minute, direct),
-					// "inmem+json":       cached.AsJSON(tracer, cached.WithPrefix[[]byte]("proto", inMemory), 5*time.Minute, direct),
-					// "inmem+proto":      cached.AsProtoBuf(tracer, cached.WithPrefix[[]byte]("proto", inMemory), 5*time.Minute, direct),
+					"redis+json":              cached.Wrap(storage, direct),
+					"redis+json+gz":           cached.Wrap(cached.WithGzip[string, []byte](cached.WithPrefix[string, []byte]("gz", storage)), direct),
+					"redis+json+zstd":         cached.Wrap(cached.WithZstd[string, []byte](cached.WithPrefix[string, []byte]("zstd", storage)), direct),
+					"redis+proto":             cached.Wrap(cached.WithPrefix[string, []byte]("proto", storage), direct, cached.AsProtoBuf[*debian.RepositoryConfig, *hedge.DebianPackages]()),
+					"redis+proto+gz":          cached.Wrap(cached.WithGzip[string, []byte](cached.WithPrefix[string, []byte]("proto_gz", storage)), direct, cached.AsProtoBuf[*debian.RepositoryConfig, *hedge.DebianPackages]()),
+					"redis+proto+zstd":        cached.Wrap(cached.WithZstd[string, []byte](cached.WithPrefix[string, []byte]("proto_zstd", storage)), direct, cached.AsProtoBuf[*debian.RepositoryConfig, *hedge.DebianPackages]()),
+					"redis+signed+proto+zstd": cached.Wrap(cached.WithZstd[string, []byte](cached.WithPrefix[string, []byte]("signed_proto_zstd", signed)), direct, cached.AsProtoBuf[*debian.RepositoryConfig, *hedge.DebianPackages]()),
 				})
 
 				for _, repo := range ecoCfg.Repositories {

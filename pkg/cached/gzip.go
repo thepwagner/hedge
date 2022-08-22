@@ -9,17 +9,17 @@ import (
 )
 
 // WithGzip applys gzip compression to every value of a []byte-valued cache.
-func WithGzip[K comparable](cache Cache[K, []byte]) *GzipStorage[K] {
-	return &GzipStorage[K]{cache: cache}
+func WithGzip[K comparable, V ~[]byte](cache Cache[K, V]) *GzipStorage[K, V] {
+	return &GzipStorage[K, V]{cache: cache}
 }
 
-type GzipStorage[K comparable] struct {
-	cache Cache[K, []byte]
+type GzipStorage[K comparable, V ~[]byte] struct {
+	cache Cache[K, V]
 }
 
-var _ Cache[string, []byte] = (*GzipStorage[string])(nil)
+var _ Cache[string, []byte] = (*GzipStorage[string, []byte])(nil)
 
-func (g GzipStorage[K]) Get(ctx context.Context, key K) (*[]byte, error) {
+func (g GzipStorage[K, V]) Get(ctx context.Context, key K) (*V, error) {
 	b, err := g.cache.Get(ctx, key)
 	if err != nil {
 		return nil, err
@@ -36,10 +36,11 @@ func (g GzipStorage[K]) Get(ctx context.Context, key K) (*[]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &decompressed, nil
+	ret := V(decompressed)
+	return &ret, nil
 }
 
-func (g GzipStorage[K]) Set(ctx context.Context, key K, value []byte, ttl time.Duration) error {
+func (g GzipStorage[K, V]) Set(ctx context.Context, key K, value V, ttl time.Duration) error {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	if _, err := gz.Write(value); err != nil {

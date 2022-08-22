@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"reflect"
 	"time"
 
@@ -13,25 +14,32 @@ import (
 
 type ByteStorage Cache[string, []byte]
 
+type KeyMapper[K comparable] func(K) (string, error)
+
 type MappingOptions[K comparable, V any] struct {
-	KeyMapper func(K) (string, error)
+	KeyMapper    KeyMapper[K]
+	ValueToBytes func(V) ([]byte, error)
+	BytesToValue func([]byte) (V, error)
 }
 
-// AsJSON caches a function result as JSON within byte storage.
-func AsJSON[K comparable, V any](storage ByteStorage, ttl time.Duration, wrapped Function[K, V]) Function[K, V] {
-	opts := MappingOptions[K, V]{
-		KeyMapper: func(k K) (string, error) {
-			h := sha256.New()
-			if err := json.NewEncoder(h).Encode(k); err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("%x", h.Sum(nil)), nil
-		},
+type MappingOption[K comparable, V any] func(*MappingOptions[K, V])
+
+func Wrap[K comparable, V any](storage ByteStorage, wrapped Function[K, V], opts ...MappingOption[K, V]) Function[K, V] {
+	var mappingOpt MappingOptions[K, V]
+	for _, opt := range opts {
+		opt(&mappingOpt)
+	}
+
+	if mappingOpt.KeyMapper == nil {
+		mappingOpt.KeyMapper = HashingKeyMapper[K](sha256.New)
+	}
+	if mappingOpt.BytesToValue == nil || mappingOpt.ValueToBytes == nil {
+		AsJSON[K, V]()(&mappingOpt)
 	}
 
 	return func(ctx context.Context, arg K) (V, error) {
 		var zero V
-		key, err := opts.KeyMapper(arg)
+		key, err := mappingOpt.KeyMapper(arg)
 		if err != nil {
 			return zero, err
 		}
@@ -39,11 +47,7 @@ func AsJSON[K comparable, V any](storage ByteStorage, ttl time.Duration, wrapped
 		if cached, err := storage.Get(ctx, key); err != nil {
 			return zero, err
 		} else if cached != nil {
-			var ret V
-			if err := json.Unmarshal(*cached, &ret); err != nil {
-				return zero, err
-			}
-			return ret, nil
+			return mappingOpt.BytesToValue(*cached)
 		}
 
 		calculated, err := wrapped(ctx, arg)
@@ -51,60 +55,63 @@ func AsJSON[K comparable, V any](storage ByteStorage, ttl time.Duration, wrapped
 			return zero, err
 		}
 
-		val, err := json.Marshal(calculated)
+		b, err := mappingOpt.ValueToBytes(calculated)
 		if err != nil {
 			return zero, err
 		}
-		if err := storage.Set(ctx, key, val, ttl); err != nil {
+		if err := storage.Set(ctx, key, b, 5*time.Minute); err != nil {
 			return zero, err
 		}
 		return calculated, nil
 	}
 }
 
-func AsProtoBuf[K comparable, V proto.Message](storage ByteStorage, ttl time.Duration, wrapped Function[K, V]) Function[K, V] {
-	opts := MappingOptions[K, V]{
-		KeyMapper: func(k K) (string, error) {
-			h := sha256.New()
-			if err := json.NewEncoder(h).Encode(k); err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("%x", h.Sum(nil)), nil
-		},
+func HashingKeyMapper[K comparable](hasher func() hash.Hash) KeyMapper[K] {
+	return func(k K) (string, error) {
+		h := hasher()
+		if err := json.NewEncoder(h).Encode(k); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%x", h.Sum(nil)), nil
 	}
+}
 
+func AsJSON[K comparable, V any]() MappingOption[K, V] {
+	return func(opt *MappingOptions[K, V]) {
+		opt.BytesToValue = func(b []byte) (V, error) {
+			var v V
+			if err := json.Unmarshal(b, &v); err != nil {
+				return v, fmt.Errorf("decoding json: %w", err)
+			}
+			return v, nil
+		}
+		opt.ValueToBytes = func(v V) ([]byte, error) {
+			b, err := json.Marshal(v)
+			if err != nil {
+				return nil, fmt.Errorf("encoding json: %w", err)
+			}
+			return b, nil
+		}
+	}
+}
+
+func AsProtoBuf[K comparable, V proto.Message]() MappingOption[K, V] {
 	var v V
 	vType := reflect.TypeOf(v).Elem()
-
-	return func(ctx context.Context, arg K) (V, error) {
-		var zero V
-		key, err := opts.KeyMapper(arg)
-		if err != nil {
-			return zero, err
-		}
-
-		if cached, err := storage.Get(ctx, key); err != nil {
-			return zero, err
-		} else if cached != nil {
+	return func(opt *MappingOptions[K, V]) {
+		opt.BytesToValue = func(b []byte) (V, error) {
 			ret := reflect.New(vType).Interface().(V)
-			if err := proto.Unmarshal(*cached, ret); err != nil {
-				return zero, err
+			if err := proto.Unmarshal(b, ret); err != nil {
+				return v, fmt.Errorf("decoding json: %w", err)
 			}
 			return ret, nil
 		}
-
-		calculated, err := wrapped(ctx, arg)
-		if err != nil {
-			return zero, err
+		opt.ValueToBytes = func(v V) ([]byte, error) {
+			b, err := proto.Marshal(v)
+			if err != nil {
+				return nil, fmt.Errorf("encoding json: %w", err)
+			}
+			return b, nil
 		}
-
-		val, err := proto.Marshal(calculated)
-		if err != nil {
-			return zero, err
-		}
-		if err := storage.Set(ctx, key, val, ttl); err != nil {
-			return zero, err
-		}
-		return calculated, nil
 	}
 }

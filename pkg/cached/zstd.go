@@ -9,17 +9,17 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-type ZstdStorage[K comparable] struct {
-	cache Cache[K, []byte]
+type ZstdStorage[K comparable, V ~[]byte] struct {
+	cache Cache[K, V]
 }
 
-var _ Cache[string, []byte] = (*ZstdStorage[string])(nil)
+var _ Cache[string, []byte] = (*ZstdStorage[string, []byte])(nil)
 
-func WithZstd[K comparable](cache Cache[K, []byte]) *ZstdStorage[K] {
-	return &ZstdStorage[K]{cache: cache}
+func WithZstd[K comparable, V ~[]byte](cache Cache[K, V]) *ZstdStorage[K, V] {
+	return &ZstdStorage[K, V]{cache: cache}
 }
 
-func (g ZstdStorage[K]) Get(ctx context.Context, key K) (*[]byte, error) {
+func (g ZstdStorage[K, V]) Get(ctx context.Context, key K) (*V, error) {
 	b, err := g.cache.Get(ctx, key)
 	if err != nil {
 		return nil, err
@@ -36,10 +36,11 @@ func (g ZstdStorage[K]) Get(ctx context.Context, key K) (*[]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &decompressed, nil
+	ret := V(decompressed)
+	return &ret, nil
 }
 
-func (g ZstdStorage[K]) Set(ctx context.Context, key K, value []byte, ttl time.Duration) error {
+func (g ZstdStorage[K, V]) Set(ctx context.Context, key K, value V, ttl time.Duration) error {
 	var buf bytes.Buffer
 	gz, err := zstd.NewWriter(&buf)
 	if err != nil {
