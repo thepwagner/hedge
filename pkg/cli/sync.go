@@ -72,11 +72,13 @@ func SyncCommand(log logr.Logger) *cli.Command {
 					for _, pkg := range pkgs {
 						deb := pkg.(debian.Package)
 						debs = append(debs, &hedge.DebianPackage{
-							Package:       deb.Package,
+							Name:          deb.Package,
 							Source:        deb.Source,
 							Version:       deb.Version,
 							Priority:      deb.Priority,
 							InstalledSize: uint64(deb.InstalledSize()),
+							Maintainer:    deb.Maintainer,
+							Tags:          deb.Tags(),
 						})
 					}
 					return &hedge.DebianPackages{
@@ -118,14 +120,16 @@ func SyncCommand(log logr.Logger) *cli.Command {
 							return err
 						}
 						if ok {
-							repoLog.V(1).Info("accepted package", "package_name", pkg.GetPackage())
+							repoLog.V(1).Info("accepted package", "package_name", pkg.GetName())
 							filtered = append(filtered, pkg)
 						}
 					}
 					if err != nil {
+						filterSpan.End()
 						return err
 					}
 					repoLog.Info("filtered packages repository", "package_count", len(filtered))
+					filterSpan.End()
 				}
 			}
 			return nil

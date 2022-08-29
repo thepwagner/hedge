@@ -8,7 +8,6 @@ import (
 	"cuelang.org/go/cue/cuecontext"
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/load"
-	cuejson "cuelang.org/go/encoding/json"
 )
 
 func MatchesCue(entrypoints ...string) (Predicate[[]byte], error) {
@@ -41,9 +40,9 @@ func MatchesCue(entrypoints ...string) (Predicate[[]byte], error) {
 	}
 
 	return func(ctx context.Context, b []byte) (bool, error) {
-		// Even though it's inefficient, JSON intermediates are grokable.
 		for _, val := range values {
-			if err := cuejson.Validate(b, val); err != nil {
+			err := val.Unify(val.Context().CompileBytes(b)).Err()
+			if err != nil {
 				var errs errors.Error
 				if errors.As(err, &errs) {
 					return false, nil

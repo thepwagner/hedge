@@ -5,23 +5,23 @@ option go_package = "github.com/thepwagner/hedge";
 
 // DebianPackage is a .deb
 message DebianPackage {
-  string package = 1;
+  string name = 1;
   string source = 2;
   string version = 3;
   uint64 installed_size = 4;
-	string maintainer = 5;
-	repeated string depends = 6;
-	string pre_depends = 7;
-	string section = 8;
-	repeated string tags = 9;
-	string description = 10;
-	string homepage = 11;
-	string priority = 12;
-	string architecture = 13;
-	string filename = 14;
-	uint64 size = 15;
-	string md5sum = 16;
-	string sha256 = 17;
+  string maintainer = 5;
+  repeated string depends = 6;
+  string pre_depends = 7;
+  string section = 8;
+  repeated string tags = 9;
+  string description = 10;
+  string homepage = 11;
+  string priority = 12;
+  string architecture = 13;
+  string filename = 14;
+  uint64 size = 15;
+  string md5sum = 16;
+  string sha256 = 17;
 }
 
 // DebianPackages is a collection of DebianPackage

@@ -1,7 +1,0 @@
-source:
-  upstream:
-    url: https://registry.npmjs.org/
-
-policies:
-  anyOf:
-    - jquery.cue
