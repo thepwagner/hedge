@@ -1,0 +1,22 @@
+name: 'issue-token'
+on:
+  push:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  issue-token:
+    name: Get a test token
+    runs-on: ubuntu-latest
+    steps:
+      - uses: thepwagner/token-action@cleanup-after-yourself
+        id: token
+        with:
+          server: 'https://gtfo-yuiafdvuwa-uc.a.run.app'
+          repositories: |
+            - thepwagner/hedge
+          permissions: |
+            contents: read
+      - run: echo "${{steps.token.outputs.token}}"
