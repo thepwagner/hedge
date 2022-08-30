@@ -18,7 +18,8 @@ var _ ByteStorage = (*Redis)(nil)
 // InRedis returns Redis-backed ByteStorage.
 func InRedis(addr string) *Redis {
 	redisC := redis.NewClient(&redis.Options{
-		Addr: addr,
+		Addr:         addr,
+		MinIdleConns: 5,
 	})
 	return &Redis{redis: redisC}
 }

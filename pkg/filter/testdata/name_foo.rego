@@ -18,7 +18,7 @@ no_signature {
   not input.signature
 }
 
-signers := ["key1", "key2"]
+signers := ["key1", "key2", "compromised-key"]
 signed_by_trusted_key {
   some key in signers
   input.signature.keyFingerprint == key
@@ -34,4 +34,8 @@ allow {
   named_foo
   not_deprecated
   signed_by_trusted_key
+}
+
+deny {
+  input.signature.keyFingerprint == "compromised-key"
 }

@@ -24,33 +24,10 @@ func TestMatchesRego(t *testing.T) {
 			expectedFail: []TestPackage{
 				{Name: "bar"},                   // name mismatch
 				{Name: "foo", Deprecated: true}, // deprecated
-				{Name: "foo", Signature: &TestSignature{KeyFingerprint: "key3"}}, // fingerprint mismatch
+				{Name: "foo", Signature: &TestSignature{KeyFingerprint: "key3"}},            // fingerprint mismatch
+				{Name: "foo", Signature: &TestSignature{KeyFingerprint: "compromised-key"}}, // valid signer, but denied key
 			},
 		},
-		// "testdata/package_group.cue": {
-		// 	expectedSuccess: []TestPackage{
-		// 		{Name: "test"},
-		// 		{Name: "test-common"},
-		// 		{Name: "dep1"},
-		// 		{Name: "dep2"},
-		// 	},
-		// 	expectedFail: []TestPackage{
-		// 		{Name: "test-tube"}, // does not match regex
-		// 		{Name: "dep3"},      // not in the dep list
-		// 	},
-		// },
-		// "testdata/tags.cue": {
-		// 	expectedSuccess: []TestPackage{
-		// 		{Name: "test", Tags: []string{"tag1", "tag2", "tag3", "tag4", "tag5"}},
-		// 		{Name: "test", Tags: []string{"tag2", "tag4"}},
-		// 	},
-		// 	expectedFail: []TestPackage{
-		// 		{Name: "test"},                         // no tags
-		// 		{Name: "test", Tags: []string{"tag1"}}, // no relevant tags
-		// 		{Name: "test", Tags: []string{"tag2"}}, // not both tags
-		// 		{Name: "test", Tags: []string{"tag4"}}, // not both tags
-		// 	},
-		// },
 	}
 
 	for fn, tc := range cases {
