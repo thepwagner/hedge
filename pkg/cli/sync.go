@@ -14,6 +14,7 @@ import (
 	"github.com/thepwagner/hedge/pkg/server"
 	"github.com/thepwagner/hedge/proto/hedge/v1"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/sync/errgroup"
 )
 
 func SyncCommand(log logr.Logger) *cli.Command {
@@ -47,8 +48,7 @@ func SyncCommand(log logr.Logger) *cli.Command {
 			fmt.Printf("http://riker.pwagner.net:16686/trace/%s\n", traceID)
 
 			var storage cached.ByteStorage
-			storage = cached.InRedis(cfg.RedisAddr)
-			storage = cached.WithTracer[string, []byte](tracer, storage)
+			storage = cached.InRedis(cfg.RedisAddr, tp)
 
 			// signed := cached.NewSignedCache(map[string][]byte{
 			// 	"foo": []byte("bar"),
@@ -86,16 +86,7 @@ func SyncCommand(log logr.Logger) *cli.Command {
 					}, nil
 				}
 
-				debStorage := cached.Race(tracer, "LoadPackages", map[string]cached.Function[*debian.RepositoryConfig, *hedge.DebianPackages]{
-					// "direct":                  direct,
-					// "redis+json":              cached.Wrap(storage, direct),
-					// "redis+json+gz":           cached.Wrap(cached.WithGzip[string, []byte](cached.WithPrefix[string, []byte]("gz", storage)), direct),
-					// "redis+json+zstd":         cached.Wrap(cached.WithZstd[string, []byte](cached.WithPrefix[string, []byte]("zstd", storage)), direct),
-					// "redis+proto":             cached.Wrap(cached.WithPrefix[string, []byte]("proto", storage), direct, cached.AsProtoBuf[*debian.RepositoryConfig, *hedge.DebianPackages]()),
-					// "redis+proto+gz":          cached.Wrap(cached.WithGzip[string, []byte](cached.WithPrefix[string, []byte]("proto_gz", storage)), direct, cached.AsProtoBuf[*debian.RepositoryConfig, *hedge.DebianPackages]()),
-					"redis+proto+zstd": cached.Wrap(cached.WithZstd[string, []byte](cached.WithPrefix[string, []byte]("proto_zstdz", storage)), direct, cached.AsProtoBuf[*debian.RepositoryConfig, *hedge.DebianPackages]()),
-					// "redis+signed+proto+zstd": cached.Wrap(cached.WithZstd[string, []byte](cached.WithPrefix[string, []byte]("signed_proto_zstd", signed)), direct, cached.AsProtoBuf[*debian.RepositoryConfig, *hedge.DebianPackages]()),
-				})
+				debStorage := cached.Wrap(cached.WithZstd[string, []byte](cached.WithPrefix[string, []byte]("repo_deb_packages", storage)), direct, cached.AsProtoBuf[*debian.RepositoryConfig, *hedge.DebianPackages]())
 
 				for _, repo := range ecoCfg.Repositories {
 					repoLog := ecoLog.WithValues("repository", repo.Name()).V(1)
@@ -112,23 +103,36 @@ func SyncCommand(log logr.Logger) *cli.Command {
 						filterSpan.End()
 						return err
 					}
-					var filtered []*hedge.DebianPackage
+					filtered := make(chan *hedge.DebianPackage)
+					eg, egCtx := errgroup.WithContext(ctx)
 					for _, pkg := range allPackages.GetPackages() {
-						ok, err := pred(ctx, pkg)
-						if err != nil {
-							filterSpan.End()
-							return err
-						}
-						if ok {
-							repoLog.V(1).Info("accepted package", "package_name", pkg.GetName())
-							filtered = append(filtered, pkg)
-						}
+						pkg := pkg
+						eg.Go(func() error {
+							ok, err := pred(egCtx, pkg)
+							if err != nil {
+								return err
+							}
+							if ok {
+								repoLog.V(1).Info("accepted package", "package_name", pkg.GetName())
+								filtered <- pkg
+							}
+							return nil
+						})
 					}
-					if err != nil {
-						filterSpan.End()
+					go func() {
+						_ = eg.Wait()
+						close(filtered)
+					}()
+
+					var ret []*hedge.DebianPackage
+					for pkg := range filtered {
+						ret = append(ret, pkg)
+					}
+					if err := eg.Wait(); err != nil {
 						return err
 					}
-					repoLog.Info("filtered packages repository", "package_count", len(filtered))
+					filterSpan.End()
+					repoLog.Info("filtered packages repository", "package_count", len(ret))
 					filterSpan.End()
 				}
 			}

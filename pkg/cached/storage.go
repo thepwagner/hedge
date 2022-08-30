@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 type ByteStorage Cache[string, []byte]

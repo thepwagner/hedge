@@ -8,8 +8,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
 	"github.com/thepwagner/hedge/proto/hedge/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 type SignedCache struct {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/thepwagner/hedge/pkg/cached"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestInRedis(t *testing.T) {
@@ -14,11 +15,11 @@ func TestInRedis(t *testing.T) {
 	if !ok {
 		t.Skip("set TEST_REDIS_ADDR_THAT_WILL_BE_WIPED and beware")
 	}
-	// addr = "localhost:6379"
+	// addr := "localhost:6379"
 
 	ctx := context.Background()
 	ExerciseCache(t, func(tb testing.TB) cached.Cache[string, []byte] {
-		c := cached.InRedis(addr)
+		c := cached.InRedis(addr, trace.NewNoopTracerProvider())
 		err := c.FlushDB(ctx)
 		require.NoError(tb, err)
 		return c

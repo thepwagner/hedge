@@ -5,7 +5,10 @@ import (
 	"errors"
 	"time"
 
+	"github.com/go-redis/redis/extra/redisotel/v9"
 	"github.com/go-redis/redis/v9"
+	semconv "go.opentelemetry.io/otel/semconv/v1.10.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Redis is shared external ByteStorage.
@@ -16,11 +19,13 @@ type Redis struct {
 var _ ByteStorage = (*Redis)(nil)
 
 // InRedis returns Redis-backed ByteStorage.
-func InRedis(addr string) *Redis {
+func InRedis(addr string, tp trace.TracerProvider) *Redis {
 	redisC := redis.NewClient(&redis.Options{
 		Addr:         addr,
 		MinIdleConns: 5,
 	})
+
+	redisC.AddHook(redisotel.NewTracingHook(redisotel.WithTracerProvider(tp), redisotel.WithAttributes(semconv.NetPeerNameKey.String(addr))))
 	return &Redis{redis: redisC}
 }
 
