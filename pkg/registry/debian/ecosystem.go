@@ -7,6 +7,7 @@ import (
 
 	"github.com/thepwagner/hedge/pkg/cached"
 	"github.com/thepwagner/hedge/pkg/registry"
+	"github.com/thepwagner/hedge/pkg/registry/base"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
 )
@@ -96,12 +97,11 @@ func (e EcosystemProvider) AllPackages(ctx context.Context, repoCfg registry.Rep
 }
 
 func (e EcosystemProvider) NewHandler(args registry.HandlerArgs) (registry.HasRoutes, error) {
-	// h, err := base.NewHandler(args, func(cfg *RepositoryConfig) (*repositoryHandler, error) {
-	// 	return newRepositoryHandler(args, cfg)
-	// })
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// return &Handler{Handler: *h}, nil
-	return nil, nil
+	h, err := base.NewHandler(args, func(cfg *RepositoryConfig) (*repositoryHandler, error) {
+		return newRepositoryHandler(args, cfg)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Handler{Handler: *h}, nil
 }

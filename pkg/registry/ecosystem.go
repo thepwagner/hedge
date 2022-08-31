@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/thepwagner/hedge/pkg/cached"
 	"github.com/thepwagner/hedge/pkg/filter"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -25,9 +26,10 @@ type EcosystemProvider interface {
 }
 
 type HandlerArgs struct {
-	Tracer    trace.Tracer
-	Client    *http.Client
-	Ecosystem EcosystemConfig
+	Tracer      trace.Tracer
+	Client      *http.Client
+	ByteStorage cached.ByteStorage
+	Ecosystem   EcosystemConfig
 }
 
 type RepositoryConfig interface {
