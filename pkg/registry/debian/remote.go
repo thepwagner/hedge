@@ -18,10 +18,143 @@ import (
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/thepwagner/hedge/pkg/cached"
+	"github.com/thepwagner/hedge/proto/hedge/v1"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+type ReleaseLoader2 struct {
+	tracer   trace.Tracer
+	fetchURL cached.Function[string, []byte]
+}
+
+func NewReleaseLoader2(tracer trace.Tracer, fetchURL cached.Function[string, []byte]) *ReleaseLoader2 {
+	return &ReleaseLoader2{
+		tracer:   tracer,
+		fetchURL: fetchURL,
+	}
+}
+
+type ReleaseArgs struct {
+	URL  string
+	Key  string
+	Dist string
+}
+
+func (r *ReleaseLoader2) Load(ctx context.Context, args ReleaseArgs) (*hedge.DebianRelease, error) {
+	ctx, span := r.tracer.Start(ctx, "debianremote.release.Load")
+	defer span.End()
+
+	u, err := url.JoinPath(args.URL, "dists", args.Dist, "InRelease")
+	if err != nil {
+		return nil, fmt.Errorf("building URL: %w", err)
+	}
+	b, err := r.fetchURL(ctx, u)
+	if err != nil {
+		return nil, fmt.Errorf("fetching release file: %w", err)
+	}
+
+	key, err := openpgp.ReadArmoredKeyRing(strings.NewReader(args.Key))
+	if err != nil {
+		return nil, fmt.Errorf("reading key: %w", err)
+	}
+	graph, err := ParseReleaseFile(b, key)
+	if err != nil {
+		return nil, fmt.Errorf("parsing release file: %w", err)
+	}
+
+	var ret hedge.DebianRelease
+	for k, v := range graph {
+		switch k {
+		case "Acquire-By-Hash":
+			ret.AcquireByHash = v == "yes"
+		case "Architectures":
+			ret.Architectures = strings.Split(v, " ")
+		case "Changelogs":
+			ret.Changelogs = v
+		case "Codename":
+			ret.Codename = v
+		case "Components":
+			ret.Components = strings.Split(v, " ")
+		case "Date":
+			t, err := time.Parse(time.RFC1123, v)
+			if err != nil {
+				return nil, fmt.Errorf("parsing date: %w", err)
+			}
+			ret.Date = timestamppb.New(t)
+		case "Description":
+			ret.Description = v
+		case "Label":
+			ret.Label = v
+		case "MD5Sum", "SHA256":
+			// skipped, as these are calculated below
+		case "No-Support-for-Architecture-all":
+			ret.NoSupportForArchitectureAll = v == "yes"
+		case "Origin":
+			ret.Origin = v
+		case "Suite":
+			ret.Suite = v
+		case "Version":
+			ret.Version = v
+		default:
+			return nil, fmt.Errorf("unknown key: %s", k)
+		}
+	}
+
+	digests, err := parseDigests(graph)
+	if err != nil {
+		return nil, err
+	}
+	ret.Digests = digests
+
+	return &ret, nil
+}
+
+func parseDigests(graph Paragraph) (map[string]*hedge.DebianRelease_DigestedFile, error) {
+	lines := strings.Split(graph["SHA256"], "\n")
+	digests := make(map[string]*hedge.DebianRelease_DigestedFile, len(lines))
+	for _, line := range lines {
+		m := digestRE.FindStringSubmatch(line)
+		if len(m) == 0 {
+			continue
+		}
+		path := m[3]
+		size, err := strconv.Atoi(m[2])
+		if err != nil {
+			return nil, fmt.Errorf("parsing expected size: %w", err)
+		}
+		digest, err := hex.DecodeString(m[1])
+		if err != nil {
+			return nil, fmt.Errorf("parsing expected sha: %w", err)
+		}
+		digests[path] = &hedge.DebianRelease_DigestedFile{
+			Path:      fmt.Sprintf("%s/by-hash/SHA256/%x", filepath.Dir(path), digest),
+			Sha256Sum: digest,
+			Size:      uint64(size),
+		}
+	}
+
+	for _, line := range strings.Split(graph["MD5Sum"], "\n") {
+		m := digestRE.FindStringSubmatch(line)
+		if len(m) == 0 {
+			continue
+		}
+		path := m[3]
+		df, ok := digests[path]
+		if !ok {
+			continue
+		}
+		digest, err := hex.DecodeString(m[1])
+		if err != nil {
+			return nil, fmt.Errorf("parsing expected md5: %w", err)
+		}
+		df.Md5Sum = digest
+	}
+
+	return digests, nil
+}
 
 type remoteLoader struct {
 	tracer trace.Tracer
@@ -216,7 +349,7 @@ func (r *RemotePackagesLoader) LoadPackages(ctx context.Context, release *Releas
 	return allPackages, nil
 }
 
-var digestRE = regexp.MustCompile(`([0-9a-f]{64})\s+([0-9]+)\s+([^ ]+)$`)
+var digestRE = regexp.MustCompile(`([0-9a-f]{32,64})\s+([0-9]+)\s+([^ ]+)$`)
 
 func (r *RemotePackagesLoader) fileMetadata(ctx context.Context, release *Release) (map[string]PackagesDigest, error) {
 	lines := strings.Split(release.SHA256, "\n")

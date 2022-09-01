@@ -3,6 +3,33 @@ syntax = "proto3";
 package hedge.v1;
 option go_package = "github.com/thepwagner/hedge";
 
+import "google/protobuf/timestamp.proto";
+
+message DebianRelease {
+  bool acquire_by_hash = 1;
+  repeated string architectures = 2;
+  string changelogs = 3;
+  string codename = 4;
+  repeated string components = 5;
+  google.protobuf.Timestamp date = 6;
+  string description = 7;
+  string label = 8;
+  bool no_support_for_architecture_all = 9;
+  string origin = 10;
+  string suite = 11;
+  string version = 12;
+  map<string,DigestedFile> digests = 13;
+
+  message DigestedFile {
+    string path = 1;
+    uint64 size = 2;
+    bytes md5sum = 3;
+    bytes sha256sum = 4;
+  }
+}
+
+
+
 // DebianPackage is a .deb
 message DebianPackage {
   string name = 1;
