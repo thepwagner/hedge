@@ -5,6 +5,7 @@ option go_package = "github.com/thepwagner/hedge";
 
 import "google/protobuf/timestamp.proto";
 
+// DebianRelease is metadata about a Debian version.
 message DebianRelease {
   bool acquire_by_hash = 1;
   repeated string architectures = 2;

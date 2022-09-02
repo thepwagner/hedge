@@ -1,7 +1,6 @@
 package debian
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -11,25 +10,30 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"github.com/gorilla/mux"
+	"github.com/thepwagner/hedge/pkg/cached"
 	"github.com/thepwagner/hedge/pkg/registry"
 	"github.com/thepwagner/hedge/pkg/registry/base"
+	"github.com/thepwagner/hedge/proto/hedge/v1"
 )
 
 // Handler implements https://wiki.debian.org/DebianRepository/Format
 type Handler struct {
 	base.Handler[*repositoryHandler]
+
+	releaseLoader  cached.Function[LoadReleaseArgs, *hedge.DebianRelease]
+	packagesLoader cached.Function[LoadPackagesArgs, *hedge.DebianPackages]
 }
 
 func (h Handler) Register(r *mux.Router) {
 	r.HandleFunc("/debian/dists/{repository}/InRelease", h.HandleInRelease)
-	r.HandleFunc("/debian/dists/{repository}/main/binary-{arch}/Packages{compression:(?:|.xz|.gz)}", h.HandlePackages)
+	// r.HandleFunc("/debian/dists/{repository}/main/binary-{arch}/Packages{compression:(?:|.xz|.gz)}", h.HandlePackages)
 	// r.HandleFunc("/debian/dists/{repository}/pool/{path:.*}", h.HandlePool)
 }
 
 func (h Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 	h.RepositoryHandler(w, r, "debian.HandleInRelease", func(ctx context.Context, vars map[string]string, rh *repositoryHandler) error {
 		// Load the release metadata:
-		release, err := rh.release.Load(ctx)
+		release, err := h.releaseLoader(ctx, rh.release)
 		if err != nil {
 			return err
 		}
@@ -38,9 +42,13 @@ func (h Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// The Release file contains hashes of all Packages files, so we need to load them:
-		packages := map[Architecture][]Package{}
-		for _, arch := range release.Architectures() {
-			pkgs, err := rh.packages.LoadPackages(ctx, release, arch)
+		packages := map[Architecture]*hedge.DebianPackages{}
+		for _, a := range release.Architectures {
+			arch := Architecture(a)
+			pkgs, err := h.packagesLoader(ctx, LoadPackagesArgs{
+				Release:      release,
+				Architecture: arch,
+			})
 			if err != nil {
 				return err
 			}
@@ -54,9 +62,10 @@ func (h Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if err := WriteReleaseFile(ctx, *release, packages, enc); err != nil {
-			return err
-		}
+		fmt.Fprint(enc, "meow")
+		// if err := WriteReleaseFile(ctx, *release, packages, enc); err != nil {
+		// 	return err
+		// }
 		if err := enc.Close(); err != nil {
 			return err
 		}
@@ -67,31 +76,31 @@ func (h Handler) HandleInRelease(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
-	h.RepositoryHandler(w, r, "debian.HandlePackages", func(ctx context.Context, vars map[string]string, rh *repositoryHandler) error {
-		arch := Architecture(vars["arch"])
-		compression := FromExtension(vars["compression"])
+// func (h Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
+// 	h.RepositoryHandler(w, r, "debian.HandlePackages", func(ctx context.Context, vars map[string]string, rh *repositoryHandler) error {
+// 		arch := Architecture(vars["arch"])
+// 		compression := FromExtension(vars["compression"])
 
-		release, err := rh.release.Load(ctx)
-		if err != nil {
-			return err
-		}
-		if release == nil {
-			return fmt.Errorf("remote release not found")
-		}
+// 		release, err := rh.release.Load(ctx)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		if release == nil {
+// 			return fmt.Errorf("remote release not found")
+// 		}
 
-		// Load and serve the packages list. The client expects this to match what HandleInRelease digested
-		pkgs, err := rh.packages.LoadPackages(ctx, release, arch)
-		if err != nil {
-			return err
-		}
-		var buf bytes.Buffer
-		if err := WriteControlFile(&buf, pkgs...); err != nil {
-			return err
-		}
-		return compression.Compress(w, &buf)
-	})
-}
+// 		// Load and serve the packages list. The client expects this to match what HandleInRelease digested
+// 		pkgs, err := rh.packages.LoadPackages(ctx, release, arch)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		var buf bytes.Buffer
+// 		if err := WriteControlFile(&buf, pkgs...); err != nil {
+// 			return err
+// 		}
+// 		return compression.Compress(w, &buf)
+// 	})
+// }
 
 // func (h *Handler) HandlePool(w http.ResponseWriter, r *http.Request) {
 // 	h.RepositoryHandler(w, r, "debian.HandlePool", func(ctx context.Context, vars map[string]string, rh *repositoryHandler) error {
@@ -104,9 +113,8 @@ func (h Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
 // }
 
 type repositoryHandler struct {
-	pk       *packet.PrivateKey
-	release  ReleaseLoader
-	packages PackagesLoader
+	pk      *packet.PrivateKey
+	release LoadReleaseArgs
 }
 
 func newRepositoryHandler(args registry.HandlerArgs, cfg *RepositoryConfig) (*repositoryHandler, error) {
@@ -117,20 +125,21 @@ func newRepositoryHandler(args registry.HandlerArgs, cfg *RepositoryConfig) (*re
 	}
 
 	// Start with a package source:
-	var release ReleaseLoader
-	var packages PackagesLoader
+	// var release ReleaseLoader
+	// var packages PackagesLoader
 	if upCfg := cfg.Source.Upstream; upCfg != nil {
-		var rpl *RemotePackagesLoader
-		release, rpl, err = NewRemoteLoader(args.Tracer, args.Client, args.ByteStorage, *cfg.Source.Upstream)
-		packages = rpl
-		if err != nil {
-			return nil, err
-		}
-		defer func() {
-			rpl.releases = release
-		}()
+		// fetcher := cached.Wrap[string, []byte](args.ByteStorage, cached.URLFetcher(args.Client))
+
+		// remote := NewRemoteRepository(args.Tracer, fetcher)
+		// packages = rpl
+		// if err != nil {
+		// 	return nil, err
+		// }
+		// defer func() {
+		// 	rpl.releases = release
+		// }()
 	} else if ghCfg := cfg.Source.GitHub; ghCfg != nil {
-		release = &FixedReleaseLoader{release: ghCfg.Release}
+		// release = &FixedReleaseLoader{release: ghCfg.Release}
 		// packages = NewGitHubPackagesLoader(args.Tracer, args.Client, *cfg.Source.GitHub)
 	} else {
 		return nil, fmt.Errorf("no source specified")
@@ -152,9 +161,9 @@ func newRepositoryHandler(args registry.HandlerArgs, cfg *RepositoryConfig) (*re
 	// packages = NewFilteredPackageLoader(tracer, packages, *rekor, pkgFilter)
 
 	return &repositoryHandler{
-		pk:       key[0].PrivateKey,
-		release:  release,
-		packages: packages,
+		pk: key[0].PrivateKey,
+		// release:  release,
+		// packages: packages,
 	}, nil
 }
 

@@ -1,15 +1,12 @@
 package debian
 
 import (
-	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/thepwagner/hedge/pkg/cached"
 	"github.com/thepwagner/hedge/pkg/registry"
 	"github.com/thepwagner/hedge/pkg/registry/base"
 	"go.opentelemetry.io/otel/trace"
-	"golang.org/x/sync/errgroup"
 )
 
 const Ecosystem registry.Ecosystem = "debian"
@@ -33,67 +30,6 @@ var _ registry.EcosystemProvider = (*EcosystemProvider)(nil)
 func (e EcosystemProvider) Ecosystem() registry.Ecosystem { return Ecosystem }
 func (e EcosystemProvider) BlankRepositoryConfig() registry.RepositoryConfig {
 	return &RepositoryConfig{}
-}
-
-func (e EcosystemProvider) AllPackages(ctx context.Context, repoCfg registry.RepositoryConfig) ([]registry.Package, error) {
-	ctx, span := e.tracer.Start(ctx, "debian.AllPackages")
-	defer span.End()
-	cfg, ok := repoCfg.(*RepositoryConfig)
-	if !ok {
-		return nil, fmt.Errorf("invalid repository config: %T", repoCfg)
-	}
-
-	var releases ReleaseLoader
-	var packages PackagesLoader
-	var err error
-	if upCfg := cfg.Source.Upstream; upCfg != nil {
-		releases, packages, err = NewRemoteLoader(e.tracer, e.client, e.storage, *cfg.Source.Upstream)
-		if err != nil {
-			return nil, err
-		}
-	} else if ghCfg := cfg.Source.GitHub; ghCfg != nil {
-		return nil, nil
-		// packages = NewGitHubPackagesLoader(args.Tracer, args.Client, *cfg.Source.GitHub)
-	} else {
-		return nil, fmt.Errorf("no source specified")
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	r, err := releases.Load(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	eg, ctx := errgroup.WithContext(ctx)
-	res := make(chan []Package, 1)
-	for _, arch := range r.Architectures() {
-		arch := arch
-		eg.Go(func() error {
-			pkgs, err := packages.LoadPackages(ctx, r, arch)
-			if err != nil {
-				return err
-			}
-			res <- pkgs
-			return nil
-		})
-	}
-	go func() {
-		_ = eg.Wait()
-		close(res)
-	}()
-
-	var allPackages []registry.Package
-	for pkgs := range res {
-		for _, pkg := range pkgs {
-			allPackages = append(allPackages, pkg)
-		}
-	}
-	if err := eg.Wait(); err != nil {
-		return nil, err
-	}
-	return allPackages, nil
 }
 
 func (e EcosystemProvider) NewHandler(args registry.HandlerArgs) (registry.HasRoutes, error) {

@@ -4,22 +4,21 @@ import (
 	"context"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/google/go-github/v45/github"
 	"github.com/thepwagner/hedge/pkg/registry"
 	"go.opentelemetry.io/otel/trace"
 )
 
-type FixedReleaseLoader struct {
-	release Release
-}
+// type FixedReleaseLoader struct {
+// 	release Release
+// }
 
-func (r FixedReleaseLoader) Load(context.Context) (*Release, error) {
-	release := r.release
-	release.DateRaw = time.Now().UTC().Format(time.RFC1123)
-	return &release, nil
-}
+// func (r FixedReleaseLoader) Load(context.Context) (*Release, error) {
+// 	release := r.release
+// 	release.DateRaw = time.Now().UTC().Format(time.RFC1123)
+// 	return &release, nil
+// }
 
 type GitHubPackagesLoader struct {
 	tracer trace.Tracer

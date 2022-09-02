@@ -3,6 +3,7 @@ package debian_test
 import (
 	"compress/gzip"
 	"context"
+	"encoding/hex"
 	"os"
 	"testing"
 
@@ -28,7 +29,7 @@ func TestParsePackages(t *testing.T) {
 	pkg := pkgs[0]
 	assert.Equal(t, "alien-arena", pkg.Name)
 	assert.Equal(t, "7.66+dfsg-6", pkg.Version)
-	assert.Equal(t, 2017, pkg.InstalledSize)
+	assert.Equal(t, uint64(2017), pkg.InstalledSize)
 	assert.Equal(t, "Debian Games Team <pkg-games-devel@lists.alioth.debian.org>", pkg.Maintainer)
 	assert.Equal(t, "amd64", pkg.Architecture)
 	assert.Equal(t, []string{
@@ -66,5 +67,6 @@ func TestParsePackages(t *testing.T) {
 	assert.Equal(t, "optional", pkg.Priority)
 	assert.Equal(t, "pool/contrib/a/alien-arena/alien-arena_7.66+dfsg-6_amd64.deb", pkg.Filename)
 	assert.Equal(t, uint64(776388), pkg.Size)
-	assert.Equal(t, "3fcd4894851b100a4da3f05b94e13fd64e639b309fba4dda979052a422c31e8e", pkg.Sha256)
+	digest, _ := hex.DecodeString("3fcd4894851b100a4da3f05b94e13fd64e639b309fba4dda979052a422c31e8e")
+	assert.Equal(t, digest, pkg.Sha256)
 }

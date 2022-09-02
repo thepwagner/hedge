@@ -1,7 +1,6 @@
 package registry
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -19,8 +18,6 @@ type Package interface {
 type EcosystemProvider interface {
 	Ecosystem() Ecosystem
 	BlankRepositoryConfig() RepositoryConfig
-
-	AllPackages(context.Context, RepositoryConfig) ([]Package, error)
 
 	NewHandler(HandlerArgs) (HasRoutes, error)
 }

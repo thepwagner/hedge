@@ -3,6 +3,7 @@ package debian
 import (
 	"github.com/thepwagner/hedge/pkg/filter"
 	"github.com/thepwagner/hedge/pkg/registry"
+	"github.com/thepwagner/hedge/proto/hedge/v1"
 )
 
 type RepositoryConfig struct {
@@ -36,6 +37,6 @@ type UpstreamConfig struct {
 
 // GitHubConfig polls GitHub releases for packages.
 type GitHubConfig struct {
-	Release      Release
+	Release      *hedge.DebianRelease
 	Repositories []string
 }

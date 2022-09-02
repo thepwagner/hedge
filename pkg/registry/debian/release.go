@@ -5,15 +5,21 @@ import (
 	"context"
 	"crypto/md5"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
+	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
 	"github.com/mitchellh/mapstructure"
+	"github.com/thepwagner/hedge/proto/hedge/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Architecture is a machine architecture, like `amd64` or `arm64`.
@@ -23,45 +29,7 @@ type Architecture string
 // Component is a Debian component, like `main` or `contrib`.
 type Component string
 
-// Release is metadata about a Debian version.
-type Release struct {
-	ComponentsRaw    string `mapstructure:"Components" yaml:"components"`
-	ArchitecturesRaw string `mapstructure:"Architectures" yaml:"architectures"`
-	DateRaw          string `mapstructure:"Date"`
-	Description      string
-	Origin           string `yaml:"origin"`
-	Label            string
-	Version          string
-	Codename         string `yaml:"codename"`
-	Suite            string `yaml:"suite"`
-	Changelogs       string
-	SHA256           string
-}
-
-func (r Release) Date() time.Time {
-	t, _ := time.Parse(time.RFC1123, r.DateRaw)
-	return t
-}
-
-func (r Release) Architectures() []Architecture {
-	split := strings.Split(r.ArchitecturesRaw, " ")
-	ret := make([]Architecture, 0, len(split))
-	for _, s := range split {
-		ret = append(ret, Architecture(s))
-	}
-	return ret
-}
-
-func (r Release) Components() []Component {
-	split := strings.Split(r.ComponentsRaw, " ")
-	ret := make([]Component, 0, len(split))
-	for _, s := range split {
-		ret = append(ret, Component(s))
-	}
-	return ret
-}
-
-func (r Release) Paragraph() (Paragraph, error) {
+func ParagraphFromRelease(r *hedge.DebianRelease) (Paragraph, error) {
 	graph := Paragraph{}
 	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		Result: &graph,
@@ -75,12 +43,100 @@ func (r Release) Paragraph() (Paragraph, error) {
 	return graph, nil
 }
 
-func ReleaseFromParagraph(graph Paragraph) (*Release, error) {
-	var r Release
-	if err := mapstructure.Decode(graph, &r); err != nil {
-		return nil, fmt.Errorf("parsing release: %w", err)
+func ReleaseFromParagraph(graph Paragraph) (*hedge.DebianRelease, error) {
+	ret := hedge.DebianRelease{
+		AcquireByHash: graph["Acquire-By-Hash"] == "yes",
+		Architectures: strings.Split(graph["Architectures"], " "),
 	}
-	return &r, nil
+
+	for k, v := range graph {
+		switch k {
+		case "Acquire-By-Hash", "Architectures":
+			continue
+		case "Changelogs":
+			ret.Changelogs = v
+		case "Codename":
+			ret.Codename = v
+		case "Components":
+			ret.Components = strings.Split(v, " ")
+		case "Date":
+			t, err := time.Parse(time.RFC1123, v)
+			if err != nil {
+				return nil, fmt.Errorf("parsing date: %w", err)
+			}
+			ret.Date = timestamppb.New(t)
+		case "Description":
+			ret.Description = v
+		case "Label":
+			ret.Label = v
+		case "MD5Sum", "SHA256":
+			// skipped, as these are calculated below
+		case "No-Support-for-Architecture-all":
+			ret.NoSupportForArchitectureAll = v == "yes"
+		case "Origin":
+			ret.Origin = v
+		case "Suite":
+			ret.Suite = v
+		case "Version":
+			ret.Version = v
+		default:
+			return nil, fmt.Errorf("unknown key: %s", k)
+		}
+	}
+
+	digests, err := parseDigests(graph)
+	if err != nil {
+		return nil, err
+	}
+	ret.Digests = digests
+
+	return &ret, nil
+}
+
+var digestRE = regexp.MustCompile(`([0-9a-f]{32,64})\s+([0-9]+)\s+([^ ]+)$`)
+
+func parseDigests(graph Paragraph) (map[string]*hedge.DebianRelease_DigestedFile, error) {
+	lines := strings.Split(graph["SHA256"], "\n")
+	digests := make(map[string]*hedge.DebianRelease_DigestedFile, len(lines))
+	for _, line := range lines {
+		m := digestRE.FindStringSubmatch(line)
+		if len(m) == 0 {
+			continue
+		}
+		path := m[3]
+		size, err := strconv.Atoi(m[2])
+		if err != nil {
+			return nil, fmt.Errorf("parsing expected size: %w", err)
+		}
+		digest, err := hex.DecodeString(m[1])
+		if err != nil {
+			return nil, fmt.Errorf("parsing expected sha: %w", err)
+		}
+		digests[path] = &hedge.DebianRelease_DigestedFile{
+			Path:      fmt.Sprintf("%s/by-hash/SHA256/%x", filepath.Dir(path), digest),
+			Sha256Sum: digest,
+			Size:      uint64(size),
+		}
+	}
+
+	for _, line := range strings.Split(graph["MD5Sum"], "\n") {
+		m := digestRE.FindStringSubmatch(line)
+		if len(m) == 0 {
+			continue
+		}
+		path := m[3]
+		df, ok := digests[path]
+		if !ok {
+			continue
+		}
+		digest, err := hex.DecodeString(m[1])
+		if err != nil {
+			return nil, fmt.Errorf("parsing expected md5: %w", err)
+		}
+		df.Md5Sum = digest
+	}
+
+	return digests, nil
 }
 
 func ParseReleaseFile(data []byte, key openpgp.EntityList) (Paragraph, error) {
@@ -102,9 +158,9 @@ func ParseReleaseFile(data []byte, key openpgp.EntityList) (Paragraph, error) {
 	return graphs[0], nil
 }
 
-func WriteReleaseFile(ctx context.Context, r Release, pkgs map[Architecture][]Package, w io.Writer) error {
+func WriteReleaseFile(ctx context.Context, r *hedge.DebianRelease, pkgs map[Architecture][]Package, w io.Writer) error {
 	// Conver the basic release to a Paragraph:
-	graph, err := r.Paragraph()
+	graph, err := ParagraphFromRelease(r)
 	if err != nil {
 		return fmt.Errorf("creating paragraph: %w", err)
 	}
