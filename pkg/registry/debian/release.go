@@ -15,8 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ProtonMail/go-crypto/openpgp"
-	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
 	"github.com/mitchellh/mapstructure"
 	"github.com/thepwagner/hedge/proto/hedge/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -137,25 +135,6 @@ func parseDigests(graph Paragraph) (map[string]*hedge.DebianRelease_DigestedFile
 	}
 
 	return digests, nil
-}
-
-func ParseReleaseFile(data []byte, key openpgp.EntityList) (Paragraph, error) {
-	// Verify signature:
-	block, _ := clearsign.Decode(data)
-	_, err := openpgp.CheckDetachedSignature(key, bytes.NewReader(block.Bytes), block.ArmoredSignature.Body, nil)
-	if err != nil {
-		return nil, fmt.Errorf("verification failed: %w", err)
-	}
-
-	// Parse file:
-	graphs, err := ParseControlFile(bytes.NewReader(block.Plaintext))
-	if err != nil {
-		return nil, fmt.Errorf("verification failed: %w", err)
-	}
-	if len(graphs) != 1 {
-		return nil, fmt.Errorf("no paragraphs found")
-	}
-	return graphs[0], nil
 }
 
 func WriteReleaseFile(ctx context.Context, r *hedge.DebianRelease, pkgs map[Architecture][]Package, w io.Writer) error {

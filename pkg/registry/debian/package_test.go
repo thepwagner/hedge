@@ -21,8 +21,8 @@ func TestParsePackages(t *testing.T) {
 	gzR, err := gzip.NewReader(f)
 	require.NoError(t, err)
 
-	pp := debian.NewPackageParser(observability.NoopTracer)
-	pkgs, err := pp.ParsePackages(context.Background(), gzR)
+	pp := debian.NewParser(observability.NoopTracer)
+	pkgs, err := pp.Packages(context.Background(), gzR)
 	require.NoError(t, err)
 	assert.Len(t, pkgs, 297)
 

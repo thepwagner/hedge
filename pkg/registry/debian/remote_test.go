@@ -36,7 +36,6 @@ func TestRemoteLoader(t *testing.T) {
 	releases := debian.NewRemoteRepository(tracer, fetch)
 
 	t.Run("LoadRelease", func(t *testing.T) {
-		t.Skip()
 		ctx, span := tracer.Start(ctx, "LoadRelease")
 		defer span.End()
 		loader := cached.Race(tracer, "load release", map[string]cached.Function[debian.LoadReleaseArgs, *hedge.DebianRelease]{
@@ -72,7 +71,7 @@ func TestRemoteLoader(t *testing.T) {
 	})
 
 	t.Run("LoadPackages", func(t *testing.T) {
-		ctx, span := tracer.Start(ctx, "LoadRelease")
+		ctx, span := tracer.Start(ctx, "LoadPackages")
 		defer span.End()
 		loader := cached.Wrap(storage, releases.LoadRelease, cached.AsProtoBuf[debian.LoadReleaseArgs, *hedge.DebianRelease]())
 

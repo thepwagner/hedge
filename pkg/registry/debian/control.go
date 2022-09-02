@@ -15,11 +15,10 @@ import (
 // Paragraph is a series of data fields.
 type Paragraph map[string]string
 
-type ToParagraph interface {
+type toParagraph interface {
 	Paragraph() (Paragraph, error)
 }
 
-// malkovich, malkovich, malkovich
 func (p Paragraph) Paragraph() (Paragraph, error) { return p, nil }
 
 var keyValueRE = regexp.MustCompile(`^([^\s:]+):(.*)$`)
@@ -37,7 +36,7 @@ func ParseControlFile(in io.Reader) ([]Paragraph, error) {
 	currentGraph := Paragraph{}
 
 	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 0, 32*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 512*1024), 512*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 
@@ -85,7 +84,7 @@ func ParseControlFile(in io.Reader) ([]Paragraph, error) {
 }
 
 // WriteConfigFile writes a Debian control file.
-func WriteControlFile[P ToParagraph](out io.Writer, graphs ...P) error {
+func WriteControlFile[P toParagraph](out io.Writer, graphs ...P) error {
 	for i, toGraph := range graphs {
 		graph, err := toGraph.Paragraph()
 		if err != nil {

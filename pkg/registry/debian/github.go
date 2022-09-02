@@ -24,7 +24,7 @@ type GitHubPackagesLoader struct {
 	tracer trace.Tracer
 	client *http.Client
 	github *github.Client
-	parser PackageParser
+	parser Parser
 
 	ghRepos []githubRepoConfig
 }
@@ -44,7 +44,7 @@ func NewGitHubPackagesLoader(tracer trace.Tracer, client *http.Client, cfg GitHu
 
 	return GitHubPackagesLoader{
 		tracer:  tracer,
-		parser:  NewPackageParser(tracer),
+		parser:  NewParser(tracer),
 		client:  client,
 		github:  gh,
 		ghRepos: ghRepos,

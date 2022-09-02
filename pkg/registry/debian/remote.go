@@ -15,20 +15,19 @@ import (
 	"github.com/thepwagner/hedge/proto/hedge/v1"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type RemoteRepository struct {
 	tracer   trace.Tracer
 	fetchURL cached.Function[string, []byte]
-	parser   PackageParser
+	parser   Parser
 }
 
 func NewRemoteRepository(tracer trace.Tracer, fetchURL cached.Function[string, []byte]) *RemoteRepository {
 	return &RemoteRepository{
 		tracer:   tracer,
 		fetchURL: fetchURL,
-		parser:   NewPackageParser(tracer),
+		parser:   NewParser(tracer),
 	}
 }
 
@@ -49,60 +48,13 @@ func (r *RemoteRepository) LoadRelease(ctx context.Context, args LoadReleaseArgs
 	if err != nil {
 		return nil, fmt.Errorf("reading key: %w", err)
 	}
-	graph, err := ParseReleaseFile(b, key)
+	release, err := r.parser.Release(ctx, bytes.NewReader(b), key)
 	if err != nil {
 		return nil, fmt.Errorf("parsing release file: %w", err)
 	}
-
-	ret := hedge.DebianRelease{
-		MirrorUrl:     args.MirrorURL,
-		Dist:          args.Dist,
-		AcquireByHash: graph["Acquire-By-Hash"] == "yes",
-		Architectures: strings.Split(graph["Architectures"], " "),
-	}
-	for k, v := range graph {
-		switch k {
-		case "Acquire-By-Hash":
-		case "Architectures":
-			ret.Architectures = strings.Split(v, " ")
-		case "Changelogs":
-			ret.Changelogs = v
-		case "Codename":
-			ret.Codename = v
-		case "Components":
-			ret.Components = strings.Split(v, " ")
-		case "Date":
-			t, err := time.Parse(time.RFC1123, v)
-			if err != nil {
-				return nil, fmt.Errorf("parsing date: %w", err)
-			}
-			ret.Date = timestamppb.New(t)
-		case "Description":
-			ret.Description = v
-		case "Label":
-			ret.Label = v
-		case "MD5Sum", "SHA256":
-			// skipped, as these are calculated below
-		case "No-Support-for-Architecture-all":
-			ret.NoSupportForArchitectureAll = v == "yes"
-		case "Origin":
-			ret.Origin = v
-		case "Suite":
-			ret.Suite = v
-		case "Version":
-			ret.Version = v
-		default:
-			return nil, fmt.Errorf("unknown key: %s", k)
-		}
-	}
-
-	digests, err := parseDigests(graph)
-	if err != nil {
-		return nil, err
-	}
-	ret.Digests = digests
-
-	return &ret, nil
+	release.MirrorUrl = args.MirrorURL
+	release.Dist = args.Dist
+	return release, nil
 }
 
 func (r *RemoteRepository) LoadPackages(ctx context.Context, args LoadPackagesArgs) (*hedge.DebianPackages, error) {
@@ -158,7 +110,7 @@ func (r *RemoteRepository) LoadPackages(ctx context.Context, args LoadPackagesAr
 			if err != nil {
 				return err
 			}
-			pkgs, err := r.parser.ParsePackages(ctx, gzr)
+			pkgs, err := r.parser.Packages(ctx, gzr)
 			if err != nil {
 				return err
 			}
