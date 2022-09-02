@@ -9,7 +9,7 @@ import (
 )
 
 // Race is a parallel version of Cached that returns the first result available.
-func Race[K comparable, V any](tracer trace.Tracer, race string, entrants map[string]Function[K, V]) Function[K, V] {
+func Race[K any, V any](tracer trace.Tracer, race string, entrants map[string]Function[K, V]) Function[K, V] {
 	return func(ctx context.Context, arg K) (V, error) {
 		ctx, span := tracer.Start(ctx, fmt.Sprintf("cached.Racer.%s", race))
 		defer span.End()

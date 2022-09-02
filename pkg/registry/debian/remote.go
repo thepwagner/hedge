@@ -32,7 +32,7 @@ func NewRemoteRepository(tracer trace.Tracer, fetchURL cached.Function[string, [
 }
 
 func (r *RemoteRepository) LoadRelease(ctx context.Context, args LoadReleaseArgs) (*hedge.DebianRelease, error) {
-	ctx, span := r.tracer.Start(ctx, "debianremote.release.Load")
+	ctx, span := r.tracer.Start(ctx, "debian.RemoteRepository.LoadRelease")
 	defer span.End()
 
 	u, err := url.JoinPath(args.MirrorURL, "dists", args.Dist, "InRelease")
@@ -54,6 +54,13 @@ func (r *RemoteRepository) LoadRelease(ctx context.Context, args LoadReleaseArgs
 	}
 	release.MirrorUrl = args.MirrorURL
 	release.Dist = args.Dist
+
+	if len(args.Architectures) != 0 {
+		release.Architectures = args.Architectures
+	}
+	if len(args.Components) != 0 {
+		release.Components = args.Components
+	}
 	return release, nil
 }
 
@@ -61,7 +68,7 @@ func (r *RemoteRepository) LoadPackages(ctx context.Context, args LoadPackagesAr
 	arch := args.Architecture
 	release := args.Release
 	components := release.Components
-	ctx, span := r.tracer.Start(ctx, "debianremote.LoadPackages", trace.WithAttributes(attrArchitecture(arch), attrComponents(components)))
+	ctx, span := r.tracer.Start(ctx, "debian.RemoteRepository.LoadPackages", trace.WithAttributes(attrArchitecture(arch), attrComponents(components)))
 	defer span.End()
 
 	eg, ctx := errgroup.WithContext(ctx)
@@ -70,7 +77,7 @@ func (r *RemoteRepository) LoadPackages(ctx context.Context, args LoadPackagesAr
 	for _, c := range components {
 		component := c
 		eg.Go(func() error {
-			ctx, span := r.tracer.Start(ctx, "debianremote.LoadPackages.component", trace.WithAttributes(attrComponent(component)))
+			ctx, span := r.tracer.Start(ctx, "debian.RemoteRepository.LoadPackages.component", trace.WithAttributes(attrComponent(component)))
 			defer span.End()
 
 			// The Release file specifies the expected properties of the Packages file

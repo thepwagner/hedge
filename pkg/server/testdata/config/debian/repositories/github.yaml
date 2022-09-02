@@ -3,7 +3,8 @@ keyPath: testdata/priv.txt
 source:
   github:
     release:
-      architectures: "amd64"
+      architectures:
+        - "amd64"
       origin: GitHub
       codename: github
     repositories:

@@ -7,7 +7,7 @@ import (
 )
 
 // Cache assocaites keys and values.
-type Cache[K comparable, V any] interface {
+type Cache[K any, V any] interface {
 	// Get returns (nil, nil) when the value is not found.
 	Get(ctx context.Context, key K) (*V, error)
 

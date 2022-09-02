@@ -5,9 +5,9 @@ import (
 	"time"
 )
 
-type Function[K comparable, V any] func(context.Context, K) (V, error)
+type Function[K any, V any] func(context.Context, K) (V, error)
 
-func Cached[K comparable, V any](cache Cache[K, V], ttl time.Duration, wrapped Function[K, V]) Function[K, V] {
+func Cached[K any, V any](cache Cache[K, V], ttl time.Duration, wrapped Function[K, V]) Function[K, V] {
 	return func(ctx context.Context, arg K) (V, error) {
 		var zero V
 		if cached, err := cache.Get(ctx, arg); err != nil {

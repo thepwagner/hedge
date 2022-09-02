@@ -3,9 +3,18 @@ syntax = "proto3";
 package hedge.v1;
 option go_package = "github.com/thepwagner/hedge";
 
+import "google/protobuf/duration.proto";
+
 // SignedEntry wraps a payload with message authentication
 message SignedEntry {
   string key_id = 1;
   bytes signature = 2;
   bytes payload = 3;
+}
+
+message HttpResponse {
+  uint32 status_code = 1;
+  string content_type = 2;
+  bytes body = 3;
+  google.protobuf.Duration ttl = 4;
 }

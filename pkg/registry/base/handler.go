@@ -1,67 +1,71 @@
 package base
 
 import (
-	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/thepwagner/hedge/pkg/cached"
 	"github.com/thepwagner/hedge/pkg/observability"
-	"github.com/thepwagner/hedge/pkg/registry"
+	"github.com/thepwagner/hedge/proto/hedge/v1"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
-type Handler[R any] struct {
-	Tracer       trace.Tracer
-	Repositories map[string]R
+type HttpRequest struct {
+	Path     string
+	PathVars map[string]string
 }
 
-func NewHandler[R any, C registry.RepositoryConfig](args registry.HandlerArgs, convert func(C) (R, error)) (*Handler[R], error) {
-	h := &Handler[R]{
-		Tracer:       args.Tracer,
-		Repositories: make(map[string]R, len(args.Ecosystem.Repositories)),
+type Handler struct {
+	Tracer trace.Tracer
+	mux    *mux.Router
+	cache  cached.Cache[string, []byte]
+}
+
+func NewHandler(tracer trace.Tracer, cache cached.ByteStorage) *Handler {
+	return &Handler{
+		Tracer: tracer,
+		mux:    mux.NewRouter(),
+		cache:  cache,
+	}
+}
+
+func (h Handler) Register(path string, ttl time.Duration, handler cached.Function[HttpRequest, *hedge.HttpResponse]) {
+	if ttl > 0 {
+		cache := cached.WithPrefix(fmt.Sprintf("mux:%s", path), h.cache)
+		handler = cached.Wrap(cache, handler, cached.AsProtoBuf[HttpRequest, *hedge.HttpResponse](), cached.WithTTL[HttpRequest, *hedge.HttpResponse](ttl))
 	}
 
-	for name, repoCfg := range args.Ecosystem.Repositories {
-		casted, ok := repoCfg.(C)
-		if !ok {
-			return nil, fmt.Errorf("repository %s is unexpected type", name)
+	h.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := h.Tracer.Start(r.Context(), path)
+		defer span.End()
+		vars := mux.Vars(r)
+		for k, v := range vars {
+			span.SetAttributes(attribute.String(fmt.Sprintf("mux.vars.%s", k), v))
 		}
-		repo, err := convert(casted)
+
+		res, err := handler(ctx, HttpRequest{
+			Path:     path,
+			PathVars: vars,
+		})
 		if err != nil {
-			return nil, err
+			_ = observability.CaptureError(span, err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
-		h.Repositories[name] = repo
-	}
-	return h, nil
+
+		if res.ContentType != "" {
+			w.Header().Add("Content-Type", res.ContentType)
+		}
+		if res.StatusCode != 0 {
+			w.WriteHeader(int(res.StatusCode))
+		}
+		_, _ = w.Write(res.Body)
+	})
 }
 
-func (h *Handler[R]) RepositoryHandler(w http.ResponseWriter, r *http.Request, spanName string, op func(context.Context, map[string]string, R) error) {
-	ctx, span := h.Tracer.Start(r.Context(), spanName)
-	defer span.End()
-
-	vars := mux.Vars(r)
-	repoName := vars["repository"]
-	span.SetAttributes(observability.RepositoryName(repoName))
-	for k, v := range vars {
-		if k == "repository" {
-			continue
-		}
-		span.SetAttributes(attribute.String(k, v))
-	}
-
-	rh, ok := h.Repositories[repoName]
-	if !ok {
-		span.SetStatus(codes.Error, "repository not found")
-		http.Error(w, "repository not found", http.StatusNotFound)
-		return
-	}
-
-	if err := op(ctx, vars, rh); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "error handling request")
-		http.Error(w, "error handling request", http.StatusInternalServerError)
-	}
+func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.mux.ServeHTTP(w, r)
 }

@@ -31,7 +31,6 @@ func FromExtension(extension string) Compression {
 func (c Compression) Extension() string {
 	switch c {
 	case CompressionNone:
-
 		return ""
 	case CompressionGZIP:
 		return ".gz"

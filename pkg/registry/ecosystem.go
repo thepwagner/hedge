@@ -18,8 +18,6 @@ type Package interface {
 type EcosystemProvider interface {
 	Ecosystem() Ecosystem
 	BlankRepositoryConfig() RepositoryConfig
-
-	NewHandler(HandlerArgs) (HasRoutes, error)
 }
 
 type HandlerArgs struct {

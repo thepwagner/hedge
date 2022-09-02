@@ -21,6 +21,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// DebianRelease is metadata about a Debian version.
 type DebianRelease struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

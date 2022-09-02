@@ -6,18 +6,15 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/gorilla/mux"
 	"github.com/thepwagner/hedge/pkg/cached"
 	"github.com/thepwagner/hedge/pkg/observability"
-	"github.com/thepwagner/hedge/pkg/registry"
+	"github.com/thepwagner/hedge/pkg/registry/base"
+	"github.com/thepwagner/hedge/pkg/registry/debian"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/jaeger"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.10.0"
-	"go.opentelemetry.io/otel/trace"
 )
 
 func RunServer(ctx context.Context, cfg Config) error {
@@ -60,7 +57,7 @@ func newTracerProvider(cfg Config) (*sdktrace.TracerProvider, error) {
 	return sdktrace.NewTracerProvider(tpOptions...), nil
 }
 
-func newMuxRouter(ctx context.Context, tp *sdktrace.TracerProvider, cfg Config) (*mux.Router, error) {
+func newMuxRouter(ctx context.Context, tp *sdktrace.TracerProvider, cfg Config) (http.Handler, error) {
 	tracer := tp.Tracer("hedge")
 	_, span := tracer.Start(ctx, "newMuxRouter")
 	defer span.End()
@@ -68,35 +65,37 @@ func newMuxRouter(ctx context.Context, tp *sdktrace.TracerProvider, cfg Config) 
 	fmt.Printf("http://riker.pwagner.net:16686/trace/%s\n", span.SpanContext().TraceID())
 
 	client := observability.NewHTTPClient(tp)
-	r := mux.NewRouter()
 
 	// Use a traced redis cache for storage:
 	storage := cached.InRedis(cfg.RedisAddr, tp)
 
-	for _, ep := range Ecosystems(tracer, client, storage) {
-		eco := ep.Ecosystem()
-		ecoCfg := cfg.Ecosystems[eco]
-		if len(ecoCfg.Repositories) == 0 {
-			continue
-		}
+	bh := base.NewHandler(tracer, storage)
+	debian.NewHandler(bh, tracer, storage, client, cfg.Ecosystems[debian.Ecosystem])
 
-		span.AddEvent("register ecosystem handler", trace.WithAttributes(
-			observability.Ecosystem(eco),
-			attribute.Int("repository_count", len(ecoCfg.Repositories)),
-		))
+	// for _, ep := range Ecosystems(tracer, client, storage) {
+	// 	eco := ep.Ecosystem()
+	// 	ecoCfg := cfg.Ecosystems[eco]
+	// 	if len(ecoCfg.Repositories) == 0 {
+	// 		continue
+	// 	}
 
-		h, err := ep.NewHandler(registry.HandlerArgs{
-			Tracer:      tracer,
-			Client:      client,
-			ByteStorage: storage,
-			Ecosystem:   ecoCfg,
-		})
-		if err != nil {
-			span.RecordError(err, trace.WithAttributes(observability.Ecosystem(eco)))
-			span.SetStatus(codes.Error, err.Error())
-			return nil, err
-		}
-		h.Register(r)
-	}
-	return r, nil
+	// 	span.AddEvent("register ecosystem handler", trace.WithAttributes(
+	// 		observability.Ecosystem(eco),
+	// 		attribute.Int("repository_count", len(ecoCfg.Repositories)),
+	// 	))
+
+	// 	h, err := ep.NewHandler(registry.HandlerArgs{
+	// 		Tracer:      tracer,
+	// 		Client:      client,
+	// 		ByteStorage: storage,
+	// 		Ecosystem:   ecoCfg,
+	// 	})
+	// 	if err != nil {
+	// 		span.RecordError(err, trace.WithAttributes(observability.Ecosystem(eco)))
+	// 		span.SetStatus(codes.Error, err.Error())
+	// 		return nil, err
+	// 	}
+	// 	h.Register(r)
+	// }
+	return bh, nil
 }

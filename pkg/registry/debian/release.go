@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mitchellh/mapstructure"
 	"github.com/thepwagner/hedge/proto/hedge/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -28,15 +27,19 @@ type Architecture string
 type Component string
 
 func ParagraphFromRelease(r *hedge.DebianRelease) (Paragraph, error) {
-	graph := Paragraph{}
-	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
-		Result: &graph,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if err := dec.Decode(r); err != nil {
-		return nil, fmt.Errorf("decoding release: %w", err)
+	graph := Paragraph{
+		"Acquire-By-Hash":                 strconv.FormatBool(r.AcquireByHash),
+		"Architectures":                   strings.Join(r.Architectures, " "),
+		"Changelogs":                      r.Changelogs,
+		"Codename":                        r.Codename,
+		"Components":                      strings.Join(r.Components, " "),
+		"Date":                            r.Date.AsTime().Format(time.RFC1123),
+		"Description":                     r.Description,
+		"Label":                           r.Label,
+		"No-Support-for-Architecture-all": strconv.FormatBool(r.NoSupportForArchitectureAll),
+		"Origin":                          r.Origin,
+		"Suite":                           r.Suite,
+		"Version":                         r.Version,
 	}
 	return graph, nil
 }
@@ -137,7 +140,7 @@ func parseDigests(graph Paragraph) (map[string]*hedge.DebianRelease_DigestedFile
 	return digests, nil
 }
 
-func WriteReleaseFile(ctx context.Context, r *hedge.DebianRelease, pkgs map[Architecture][]Package, w io.Writer) error {
+func WriteReleaseFile(ctx context.Context, r *hedge.DebianRelease, pkgs map[Architecture][]*hedge.DebianPackage, w io.Writer) error {
 	// Conver the basic release to a Paragraph:
 	graph, err := ParagraphFromRelease(r)
 	if err != nil {
@@ -178,9 +181,12 @@ type PackagesDigest struct {
 	Md5    []byte
 }
 
-func PackageHashes(ctx context.Context, arch Architecture, component Component, packages ...Package) ([]PackagesDigest, error) {
+func PackageHashes(ctx context.Context, arch Architecture, component Component, packages ...*hedge.DebianPackage) ([]PackagesDigest, error) {
+	var graphs []Paragraph
+	// FIXME: convert goes here
+
 	var buf strings.Builder
-	if err := WriteControlFile(&buf, packages...); err != nil {
+	if err := WriteControlFile(&buf, graphs...); err != nil {
 		return nil, err
 	}
 	pkgFile := buf.String()

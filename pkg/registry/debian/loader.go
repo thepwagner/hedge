@@ -7,9 +7,11 @@ import (
 )
 
 type LoadReleaseArgs struct {
-	MirrorURL  string
-	SigningKey string
-	Dist       string
+	MirrorURL     string
+	SigningKey    string
+	Dist          string
+	Architectures []string
+	Components    []string
 }
 
 type ReleaseLoader interface {
