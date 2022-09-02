@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/blakesmith/ar"
+	"github.com/thepwagner/hedge/proto/hedge/v1"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -20,7 +21,7 @@ func NewPackageParser(tracer trace.Tracer) PackageParser {
 	return PackageParser{tracer: tracer}
 }
 
-func (p PackageParser) ParsePackages(ctx context.Context, in io.Reader) ([]Package, error) {
+func (p PackageParser) ParsePackages(ctx context.Context, in io.Reader) ([]*hedge.DebianPackage, error) {
 	ctx, span := p.tracer.Start(ctx, "debianparser.ParsePackages")
 	defer span.End()
 
@@ -37,7 +38,7 @@ func (p PackageParser) ParsePackages(ctx context.Context, in io.Reader) ([]Packa
 
 	_, mapSpan := p.tracer.Start(ctx, "debianparser.PackageFromParagraph")
 	defer mapSpan.End()
-	pkgs := make([]Package, 0, len(graphs))
+	pkgs := make([]*hedge.DebianPackage, 0, len(graphs))
 	for _, graph := range graphs {
 		pkg, err := PackageFromParagraph(graph)
 		if err != nil {
@@ -52,7 +53,7 @@ func (p PackageParser) ParsePackages(ctx context.Context, in io.Reader) ([]Packa
 	return pkgs, nil
 }
 
-func (p PackageParser) PackageFromDeb(ctx context.Context, in io.Reader) (*Package, error) {
+func (p PackageParser) PackageFromDeb(ctx context.Context, in io.Reader) (*hedge.DebianPackage, error) {
 	for reader := ar.NewReader(in); ; {
 		hdr, err := reader.Next()
 		if errors.Is(err, io.EOF) {
@@ -87,7 +88,7 @@ func (p PackageParser) PackageFromDeb(ctx context.Context, in io.Reader) (*Packa
 				return nil, fmt.Errorf("parsing control file: %w", err)
 			}
 			if len(pkgs) == 1 {
-				return &pkgs[0], nil
+				return pkgs[0], nil
 			}
 		}
 	}

@@ -20,7 +20,7 @@ func TestPackageParser_PackageFromDeb(t *testing.T) {
 
 	pkg, err := parser.PackageFromDeb(context.Background(), f)
 	require.NoError(t, err)
-	assert.Equal(t, "testpkg", pkg.Package)
+	assert.Equal(t, "testpkg", pkg.Name)
 	assert.Equal(t, "1.2.3", pkg.Version)
 	assert.Equal(t, "pwagner", pkg.Maintainer)
 	assert.Equal(t, "hansel virtual package", pkg.Description)

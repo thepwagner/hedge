@@ -25,15 +25,17 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type ReleaseLoader2 struct {
+type RemoteRepository struct {
 	tracer   trace.Tracer
+	parser   PackageParser
 	fetchURL cached.Function[string, []byte]
 }
 
-func NewReleaseLoader2(tracer trace.Tracer, fetchURL cached.Function[string, []byte]) *ReleaseLoader2 {
-	return &ReleaseLoader2{
+func NewRemoteRepository(tracer trace.Tracer, fetchURL cached.Function[string, []byte]) *RemoteRepository {
+	return &RemoteRepository{
 		tracer:   tracer,
 		fetchURL: fetchURL,
+		parser:   NewPackageParser(tracer),
 	}
 }
 
@@ -43,7 +45,7 @@ type LoadReleaseArgs struct {
 	Dist       string
 }
 
-func (r *ReleaseLoader2) Load(ctx context.Context, args LoadReleaseArgs) (*hedge.DebianRelease, error) {
+func (r *RemoteRepository) LoadRelease(ctx context.Context, args LoadReleaseArgs) (*hedge.DebianRelease, error) {
 	ctx, span := r.tracer.Start(ctx, "debianremote.release.Load")
 	defer span.End()
 
@@ -65,7 +67,10 @@ func (r *ReleaseLoader2) Load(ctx context.Context, args LoadReleaseArgs) (*hedge
 		return nil, fmt.Errorf("parsing release file: %w", err)
 	}
 
-	var ret hedge.DebianRelease
+	ret := hedge.DebianRelease{
+		MirrorUrl: args.MirrorURL,
+		Dist:      args.Dist,
+	}
 	for k, v := range graph {
 		switch k {
 		case "Acquire-By-Hash":
@@ -110,6 +115,81 @@ func (r *ReleaseLoader2) Load(ctx context.Context, args LoadReleaseArgs) (*hedge
 	ret.Digests = digests
 
 	return &ret, nil
+}
+
+type LoadPackagesArgs struct {
+	Release      *hedge.DebianRelease
+	Architecture Architecture
+}
+
+func (r *RemoteRepository) LoadPackages(ctx context.Context, args LoadPackagesArgs) (*hedge.DebianPackages, error) {
+	arch := args.Architecture
+	release := args.Release
+	components := release.Components
+	ctx, span := r.tracer.Start(ctx, "debianremote.LoadPackages", trace.WithAttributes(attrArchitecture(arch), attrComponents(components)))
+	defer span.End()
+	digests := args.Release.Digests
+
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(4)
+	res := make(chan []*hedge.DebianPackage)
+	for _, c := range components {
+		component := c
+		eg.Go(func() error {
+			ctx, span := r.tracer.Start(ctx, "debianremote.LoadPackages.component", trace.WithAttributes(attrComponent(component)))
+			defer span.End()
+
+			// Fetch the file:
+			fn := fmt.Sprintf("%s/binary-%s/Packages.gz", component, arch)
+			digest, ok := digests[fn]
+			if !ok {
+				return fmt.Errorf("release is missing %s/%s", component, arch)
+			}
+			u, err := url.JoinPath(release.MirrorUrl, "dists", release.Dist, digest.Path)
+			if err != nil {
+				return fmt.Errorf("building URL: %w", err)
+			}
+			b, err := r.fetchURL(ctx, u)
+			if err != nil {
+				return fmt.Errorf("fetching release file: %w", err)
+			}
+
+			// Verify the file matches expected digest:
+			if uint64(len(b)) != digest.Size {
+				return fmt.Errorf("expected %d bytes, got %d", digest.Size, len(b))
+			}
+			if actualDigest := sha256.Sum256(b); !bytes.Equal(actualDigest[:], digest.Sha256Sum) {
+				return fmt.Errorf("expected digest %x, got %x", digest.Sha256Sum, actualDigest)
+			}
+
+			// Parse packages from verified file:
+			gzr, err := gzip.NewReader(bytes.NewReader(b))
+			if err != nil {
+				return err
+			}
+			pkgs, err := r.parser.ParsePackages(ctx, gzr)
+			if err != nil {
+				return err
+			}
+			res <- pkgs
+			return nil
+		})
+	}
+	go func() {
+		_ = eg.Wait()
+		close(res)
+	}()
+
+	var allPackages []*hedge.DebianPackage
+	for pkgs := range res {
+		allPackages = append(allPackages, pkgs...)
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+	return &hedge.DebianPackages{
+		Packages: allPackages,
+	}, nil
 }
 
 func parseDigests(graph Paragraph) (map[string]*hedge.DebianRelease_DigestedFile, error) {
@@ -299,53 +379,53 @@ func (r *RemotePackagesLoader) LoadPackages(ctx context.Context, release *Releas
 	ctx, span := r.tracer.Start(ctx, "debianremote.LoadPackages", trace.WithAttributes(attrArchitecture(arch), attrComponents(r.components)))
 	defer span.End()
 
-	expectedDigests, err := r.fileMetadata(ctx, release)
-	if err != nil {
-		return nil, err
-	}
+	// expectedDigests, err := r.fileMetadata(ctx, release)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	eg, ctx := errgroup.WithContext(ctx)
-	eg.SetLimit(4)
-	res := make(chan []Package)
-	for _, comp := range r.components {
-		comp := comp
-		eg.Go(func() error {
-			ctx, span := r.tracer.Start(ctx, "debianremote.LoadPackages.component", trace.WithAttributes(attrComponent(comp)))
-			defer span.End()
+	// eg, ctx := errgroup.WithContext(ctx)
+	// eg.SetLimit(4)
+	// res := make(chan []Package)
+	// for _, comp := range r.components {
+	// 	comp := comp
+	// 	eg.Go(func() error {
+	// 		ctx, span := r.tracer.Start(ctx, "debianremote.LoadPackages.component", trace.WithAttributes(attrComponent(comp)))
+	// 		defer span.End()
 
-			fn := fmt.Sprintf("%s/binary-%s/Packages.gz", comp, arch)
-			digest, ok := expectedDigests[fn]
-			if !ok {
-				return fmt.Errorf("release is missing %s/%s", comp, arch)
-			}
-			b, err := r.fetchPackages(ctx, digest)
-			if err != nil {
-				return err
-			}
-			gzr, err := gzip.NewReader(bytes.NewReader(b))
-			if err != nil {
-				return err
-			}
-			pkgs, err := r.parser.ParsePackages(ctx, gzr)
-			if err != nil {
-				return err
-			}
-			res <- pkgs
-			return nil
-		})
-	}
-	go func() {
-		_ = eg.Wait()
-		close(res)
-	}()
+	// 		fn := fmt.Sprintf("%s/binary-%s/Packages.gz", comp, arch)
+	// 		digest, ok := expectedDigests[fn]
+	// 		if !ok {
+	// 			return fmt.Errorf("release is missing %s/%s", comp, arch)
+	// 		}
+	// 		b, err := r.fetchPackages(ctx, digest)
+	// 		if err != nil {
+	// 			return err
+	// 		}
+	// 		gzr, err := gzip.NewReader(bytes.NewReader(b))
+	// 		if err != nil {
+	// 			return err
+	// 		}
+	// 		pkgs, err := r.parser.ParsePackages(ctx, gzr)
+	// 		if err != nil {
+	// 			return err
+	// 		}
+	// 		res <- pkgs
+	// 		return nil
+	// 	})
+	// }
+	// go func() {
+	// 	_ = eg.Wait()
+	// 	close(res)
+	// }()
 
 	var allPackages []Package
-	for pkgs := range res {
-		allPackages = append(allPackages, pkgs...)
-	}
-	if err := eg.Wait(); err != nil {
-		return nil, err
-	}
+	// for pkgs := range res {
+	// 	allPackages = append(allPackages, pkgs...)
+	// }
+	// if err := eg.Wait(); err != nil {
+	// 	return nil, err
+	// }
 	return allPackages, nil
 }
 

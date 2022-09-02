@@ -19,6 +19,8 @@ message DebianRelease {
   string suite = 11;
   string version = 12;
   map<string,DigestedFile> digests = 13;
+  string mirror_url = 14;
+  string dist = 15;
 
   message DigestedFile {
     string path = 1;
@@ -28,8 +30,6 @@ message DebianRelease {
   }
 }
 
-
-
 // DebianPackage is a .deb
 message DebianPackage {
   string name = 1;
@@ -38,7 +38,14 @@ message DebianPackage {
   uint64 installed_size = 4;
   string maintainer = 5;
   repeated string depends = 6;
-  string pre_depends = 7;
+  repeated string pre_depends = 7;
+  repeated string recommends = 18;
+  repeated string conflicts = 19;
+  repeated string replaces = 20;
+  repeated string suggests = 21;
+  repeated string enhances = 22;
+  repeated string breaks = 23;
+  string provides = 24;
   string section = 8;
   repeated string tags = 9;
   string description = 10;
@@ -47,8 +54,15 @@ message DebianPackage {
   string architecture = 13;
   string filename = 14;
   uint64 size = 15;
-  string md5sum = 16;
-  string sha256 = 17;
+  string multiarch = 25;
+  repeated string ruby_versions = 26;
+  string python_version = 27;
+  repeated string lua_versions = 31;
+  bool essential = 28;
+  bool important = 29;
+  bool protected = 30;
+  bytes md5sum = 16;
+  bytes sha256 = 17;
 }
 
 // DebianPackages is a collection of DebianPackage

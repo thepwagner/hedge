@@ -33,15 +33,15 @@ func TestRemoteLoader(t *testing.T) {
 		Transport: otelhttp.NewTransport(http.DefaultTransport, otelhttp.WithTracerProvider(tp)),
 	})
 	fetch = cached.Wrap(cached.WithPrefix[string, []byte]("debian_urls", storage), fetch)
+	releases := debian.NewRemoteRepository(tracer, fetch)
 
-	t.Run("NewReleaseLoader", func(t *testing.T) {
-		ctx, span := tracer.Start(ctx, "NewReleaseLoader")
+	t.Run("LoadRelease", func(t *testing.T) {
+		t.Skip()
+		ctx, span := tracer.Start(ctx, "LoadRelease")
 		defer span.End()
-
-		releases := debian.NewReleaseLoader2(tracer, fetch)
 		loader := cached.Race(tracer, "load release", map[string]cached.Function[debian.LoadReleaseArgs, *hedge.DebianRelease]{
-			"direct": releases.Load,
-			"cached": cached.Wrap(storage, releases.Load, cached.AsProtoBuf[debian.LoadReleaseArgs, *hedge.DebianRelease]()),
+			"direct": releases.LoadRelease,
+			"cached": cached.Wrap(storage, releases.LoadRelease, cached.AsProtoBuf[debian.LoadReleaseArgs, *hedge.DebianRelease]()),
 		})
 
 		release, err := loader(ctx, debian.LoadReleaseArgs{
@@ -69,6 +69,26 @@ func TestRemoteLoader(t *testing.T) {
 			assert.NotEmpty(t, v.Sha256Sum)
 			assert.NotEmpty(t, v.Md5Sum)
 		}
-		t.Fail()
+	})
+
+	t.Run("LoadPackages", func(t *testing.T) {
+		ctx, span := tracer.Start(ctx, "LoadRelease")
+		defer span.End()
+		loader := cached.Wrap(storage, releases.LoadRelease, cached.AsProtoBuf[debian.LoadReleaseArgs, *hedge.DebianRelease]())
+
+		release, err := loader(ctx, debian.LoadReleaseArgs{
+			MirrorURL:  "https://debian.mirror.rafal.ca/debian/",
+			SigningKey: string(key),
+			Dist:       "bullseye",
+		})
+		require.NoError(t, err)
+
+		packages, err := releases.LoadPackages(ctx, debian.LoadPackagesArgs{
+			Release:      release,
+			Architecture: "amd64",
+		})
+		require.NoError(t, err)
+		t.Logf("%d packages", len(packages.Packages))
+		assert.Len(t, packages.Packages, 59611)
 	})
 }
