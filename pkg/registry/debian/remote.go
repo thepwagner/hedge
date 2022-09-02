@@ -37,17 +37,17 @@ func NewReleaseLoader2(tracer trace.Tracer, fetchURL cached.Function[string, []b
 	}
 }
 
-type ReleaseArgs struct {
-	URL  string
-	Key  string
-	Dist string
+type LoadReleaseArgs struct {
+	MirrorURL  string
+	SigningKey string
+	Dist       string
 }
 
-func (r *ReleaseLoader2) Load(ctx context.Context, args ReleaseArgs) (*hedge.DebianRelease, error) {
+func (r *ReleaseLoader2) Load(ctx context.Context, args LoadReleaseArgs) (*hedge.DebianRelease, error) {
 	ctx, span := r.tracer.Start(ctx, "debianremote.release.Load")
 	defer span.End()
 
-	u, err := url.JoinPath(args.URL, "dists", args.Dist, "InRelease")
+	u, err := url.JoinPath(args.MirrorURL, "dists", args.Dist, "InRelease")
 	if err != nil {
 		return nil, fmt.Errorf("building URL: %w", err)
 	}
@@ -56,7 +56,7 @@ func (r *ReleaseLoader2) Load(ctx context.Context, args ReleaseArgs) (*hedge.Deb
 		return nil, fmt.Errorf("fetching release file: %w", err)
 	}
 
-	key, err := openpgp.ReadArmoredKeyRing(strings.NewReader(args.Key))
+	key, err := openpgp.ReadArmoredKeyRing(strings.NewReader(args.SigningKey))
 	if err != nil {
 		return nil, fmt.Errorf("reading key: %w", err)
 	}

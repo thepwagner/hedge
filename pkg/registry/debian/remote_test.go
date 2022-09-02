@@ -10,59 +10,44 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/thepwagner/hedge/pkg/cached"
+	"github.com/thepwagner/hedge/pkg/observability"
 	"github.com/thepwagner/hedge/pkg/registry/debian"
 	"github.com/thepwagner/hedge/proto/hedge/v1"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"go.opentelemetry.io/otel/exporters/jaeger"
-	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 )
 
 func TestRemoteLoader(t *testing.T) {
 	ctx := context.Background()
-
-	jaegerOut, err := jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint("http://riker.pwagner.net:14268/api/traces")))
-	require.NoError(t, err)
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithResource(resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceNameKey.String("hedge"),
-		)),
-		sdktrace.WithBatcher(jaegerOut),
-	)
+	tp := observability.TestTracerProvider(t)
 	tracer := tp.Tracer("")
-	defer func() { _ = tp.Shutdown(ctx) }()
 
 	ctx, span := tracer.Start(ctx, "TestRemoteLoader")
 	defer span.End()
 	fmt.Printf("http://riker.pwagner.net:16686/trace/%s\n", span.SpanContext().TraceID())
 
-	storage := cached.InRedis("localhost:6379", tp)
-
 	key, err := os.ReadFile("testdata/bullseye_pubkey.txt")
 	require.NoError(t, err)
 
+	storage := cached.InRedis("localhost:6379", tp)
 	fetch := cached.URLFetcher(&http.Client{
 		Transport: otelhttp.NewTransport(http.DefaultTransport, otelhttp.WithTracerProvider(tp)),
 	})
 	fetch = cached.Wrap(cached.WithPrefix[string, []byte]("debian_urls", storage), fetch)
 
-	t.Run("NewReleaseLoader2", func(t *testing.T) {
-		ctx, span := tracer.Start(ctx, "NewReleaseLoader2")
+	t.Run("NewReleaseLoader", func(t *testing.T) {
+		ctx, span := tracer.Start(ctx, "NewReleaseLoader")
 		defer span.End()
 
 		releases := debian.NewReleaseLoader2(tracer, fetch)
-
-		loader := cached.Race(tracer, "load release", map[string]cached.Function[debian.ReleaseArgs, *hedge.DebianRelease]{
+		loader := cached.Race(tracer, "load release", map[string]cached.Function[debian.LoadReleaseArgs, *hedge.DebianRelease]{
 			"direct": releases.Load,
-			"cached": cached.Wrap(storage, releases.Load, cached.AsProtoBuf[debian.ReleaseArgs, *hedge.DebianRelease]()),
+			"cached": cached.Wrap(storage, releases.Load, cached.AsProtoBuf[debian.LoadReleaseArgs, *hedge.DebianRelease]()),
 		})
 
-		release, err := loader(ctx, debian.ReleaseArgs{
-			URL:  "https://debian.mirror.rafal.ca/debian/",
-			Key:  string(key),
-			Dist: "bullseye",
+		release, err := loader(ctx, debian.LoadReleaseArgs{
+			MirrorURL:  "https://debian.mirror.rafal.ca/debian/",
+			SigningKey: string(key),
+			Dist:       "bullseye",
 		})
 		require.NoError(t, err)
 
