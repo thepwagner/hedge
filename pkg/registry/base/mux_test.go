@@ -16,9 +16,9 @@ import (
 	"github.com/thepwagner/hedge/proto/hedge/v1"
 )
 
-func TestNewHandler(t *testing.T) {
+func TestCachedMux(t *testing.T) {
 	storage := cached.InMemory[string, []byte]()
-	h := base.NewHandler(observability.NoopTracer, storage)
+	h := base.NewCachedMux(observability.NoopTracer, storage)
 
 	var ctr uint64
 	h.Register("/key/{key}", 1*time.Minute, func(ctx context.Context, req base.HttpRequest) (*hedge.HttpResponse, error) {

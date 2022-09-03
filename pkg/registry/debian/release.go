@@ -182,9 +182,10 @@ type PackagesDigest struct {
 }
 
 func PackageHashes(ctx context.Context, arch Architecture, component Component, packages ...*hedge.DebianPackage) ([]PackagesDigest, error) {
-	var graphs []Paragraph
-	// FIXME: convert goes here
-
+	graphs := make([]Paragraph, 0, len(packages))
+	for _, pkg := range packages {
+		graphs = append(graphs, ParagraphFromPackage(pkg))
+	}
 	var buf strings.Builder
 	if err := WriteControlFile(&buf, graphs...); err != nil {
 		return nil, err

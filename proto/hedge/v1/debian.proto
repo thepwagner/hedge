@@ -46,7 +46,7 @@ message DebianPackage {
   repeated string suggests = 21;
   repeated string enhances = 22;
   repeated string breaks = 23;
-  string provides = 24;
+  repeated string provides = 24;
   string section = 8;
   repeated string tags = 9;
   string description = 10;

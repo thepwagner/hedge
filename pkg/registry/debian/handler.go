@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
@@ -33,7 +32,7 @@ type repositoryHandler struct {
 	releaseArgs LoadReleaseArgs
 }
 
-func NewHandler(base *base.Handler, tracer trace.Tracer, cache cached.ByteStorage, client *http.Client, cfg registry.EcosystemConfig) (*Handler, error) {
+func NewHandler(base *base.CachedMux, tracer trace.Tracer, cache cached.ByteStorage, client *http.Client, cfg registry.EcosystemConfig) (*Handler, error) {
 	h := &Handler{
 		tracer: tracer,
 		repos:  map[string]*repositoryHandler{},
@@ -66,8 +65,8 @@ func NewHandler(base *base.Handler, tracer trace.Tracer, cache cached.ByteStorag
 	h.releaseLoader = observability.TracedFunc(tracer, "debian.LoadRelease", cached.Wrap(cached.WithPrefix[string, []byte]("debian_releases", cache), repo.LoadRelease, cached.AsProtoBuf[LoadReleaseArgs, *hedge.DebianRelease]()))
 	h.packagesLoader = observability.TracedFunc(tracer, "debian.LoadPackages", cached.Wrap(cached.WithPrefix[string, []byte]("debian_packages", cache), repo.LoadPackages, cached.AsProtoBuf[LoadPackagesArgs, *hedge.DebianPackages]()))
 
-	base.Register("/debian/dists/{repository}/InRelease", 5*time.Minute, h.HandleInRelease)
-	// r.HandleFunc("/debian/dists/{repository}/main/binary-{arch}/Packages{compression:(?:|.xz|.gz)}", h.HandlePackages)
+	base.Register("/debian/dists/{repository}/InRelease", 0, h.HandleInRelease)
+	base.Register("/debian/dists/{repository}/main/binary-{arch}/Packages{compression:(?:|.xz|.gz)}", 0, h.HandlePackages)
 	// r.HandleFunc("/debian/dists/{repository}/pool/{path:.*}", h.HandlePool)
 	return h, nil
 }
@@ -127,31 +126,52 @@ func (h Handler) HandleInRelease(ctx context.Context, req base.HttpRequest) (*he
 	}, nil
 }
 
-// func (h Handler) HandlePackages(w http.ResponseWriter, r *http.Request) {
-// 	h.RepositoryHandler(w, r, "debian.HandlePackages", func(ctx context.Context, vars map[string]string, rh *repositoryHandler) error {
-// 		arch := Architecture(vars["arch"])
-// 		compression := FromExtension(vars["compression"])
+func (h Handler) HandlePackages(ctx context.Context, req base.HttpRequest) (*hedge.HttpResponse, error) {
+	rh, ok := h.repos[req.PathVars["repository"]]
+	if !ok {
+		return &hedge.HttpResponse{
+			StatusCode: http.StatusNotFound,
+		}, nil
+	}
+	arch := Architecture(req.PathVars["arch"])
+	compression := CompressionFromExtension(req.PathVars["compression"])
 
-// 		release, err := rh.release.Load(ctx)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		if release == nil {
-// 			return fmt.Errorf("remote release not found")
-// 		}
+	// Load the release metadata:
+	release, err := h.releaseLoader(ctx, rh.releaseArgs)
+	if err != nil {
+		return nil, err
+	}
+	if release == nil {
+		return nil, fmt.Errorf("remote release not found")
+	}
 
-// 		// Load and serve the packages list. The client expects this to match what HandleInRelease digested
-// 		pkgs, err := rh.packages.LoadPackages(ctx, release, arch)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		var buf bytes.Buffer
-// 		if err := WriteControlFile(&buf, pkgs...); err != nil {
-// 			return err
-// 		}
-// 		return compression.Compress(w, &buf)
-// 	})
-// }
+	// Load and serve the packages list. The client expects this to match what HandleInRelease digested
+	pkgs, err := h.packagesLoader(ctx, LoadPackagesArgs{
+		Release:      release,
+		Architecture: arch,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	graphs := make([]Paragraph, 0, len(pkgs.Packages))
+	for _, pkg := range pkgs.Packages {
+		graphs = append(graphs, ParagraphFromPackage(pkg))
+	}
+
+	var buf bytes.Buffer
+	if err := WriteControlFile(&buf, graphs...); err != nil {
+		return nil, err
+	}
+
+	var compressed bytes.Buffer
+	if err := compression.Compress(&compressed, &buf); err != nil {
+		return nil, err
+	}
+	return &hedge.HttpResponse{
+		Body: compressed.Bytes(),
+	}, nil
+}
 
 // func (h *Handler) HandlePool(w http.ResponseWriter, r *http.Request) {
 // 	h.RepositoryHandler(w, r, "debian.HandlePool", func(ctx context.Context, vars map[string]string, rh *repositoryHandler) error {

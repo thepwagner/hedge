@@ -13,33 +13,39 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-type HttpRequest struct {
-	Path     string
-	PathVars map[string]string
-}
-
-type Handler struct {
-	Tracer trace.Tracer
+type CachedMux struct {
+	tracer trace.Tracer
 	mux    *mux.Router
 	cache  cached.Cache[string, []byte]
 }
 
-func NewHandler(tracer trace.Tracer, cache cached.ByteStorage) *Handler {
-	return &Handler{
-		Tracer: tracer,
+var _ http.Handler = (*CachedMux)(nil)
+
+func NewCachedMux(tracer trace.Tracer, cache cached.ByteStorage) *CachedMux {
+	return &CachedMux{
+		tracer: tracer,
 		mux:    mux.NewRouter(),
 		cache:  cache,
 	}
 }
 
-func (h Handler) Register(path string, ttl time.Duration, handler cached.Function[HttpRequest, *hedge.HttpResponse]) {
+type HttpRequest struct {
+	Path     string
+	PathVars map[string]string
+}
+
+func (h CachedMux) Register(path string, ttl time.Duration, handler cached.Function[HttpRequest, *hedge.HttpResponse]) {
 	if ttl > 0 {
 		cache := cached.WithPrefix(fmt.Sprintf("mux:%s", path), h.cache)
-		handler = cached.Wrap(cache, handler, cached.AsProtoBuf[HttpRequest, *hedge.HttpResponse](), cached.WithTTL[HttpRequest, *hedge.HttpResponse](ttl))
+		handler = cached.Wrap(cache, handler,
+			cached.AsProtoBuf[HttpRequest, *hedge.HttpResponse](),
+			cached.WithTTL[HttpRequest, *hedge.HttpResponse](ttl),
+			cached.WithMappingTracer[HttpRequest, *hedge.HttpResponse](h.tracer, path),
+		)
 	}
 
 	h.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		ctx, span := h.Tracer.Start(r.Context(), path)
+		ctx, span := h.tracer.Start(r.Context(), path)
 		defer span.End()
 		vars := mux.Vars(r)
 		for k, v := range vars {
@@ -66,6 +72,6 @@ func (h Handler) Register(path string, ttl time.Duration, handler cached.Functio
 	})
 }
 
-func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h CachedMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mux.ServeHTTP(w, r)
 }

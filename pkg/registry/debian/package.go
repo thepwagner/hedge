@@ -2,180 +2,79 @@ package debian
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 
-	"github.com/mitchellh/mapstructure"
-	"github.com/thepwagner/hedge/pkg/signature"
 	"github.com/thepwagner/hedge/proto/hedge/v1"
 )
 
-type Package struct {
-	Package          string `json:"name,omitempty"`
-	Source           string `json:"source,omitempty"`
-	Version          string `json:"version,omitempty"`
-	InstalledSizeRaw string `json:"-" mapstructure:"Installed-Size"`
-	Maintainer       string `json:"maintainer,omitempty"`
-	DependsRaw       string `json:"-" mapstructure:"Depends"`
-	PreDepends       string `json:"-" mapstructure:"Pre-Depends"`
-	Section          string `json:"section,omitempty"`
-	TagRaw           string `json:"-" mapstructure:"Tag"`
-	Description      string `json:"description,omitempty"`
-	Homepage         string `json:"homepage,omitempty"`
-	Priority         string `json:"priority,omitempty"`
-	Architecture     string `json:"architecture,omitempty"`
-	Filename         string `json:"filename,omitempty"`
-	SizeRaw          string `json:"-" mapstructure:"Size"`
-	MD5Sum           string `json:"md5sum,omitempty"`
-	Sha256           string `json:"sha256,omitempty"`
-	RekorRaw         string `json:"-" mapstructure:"-"`
-}
-
-func (p Package) GetName() string     { return p.Package }
-func (p Package) GetPriority() string { return p.Priority }
-
-func (p Package) MarshalJSON() ([]byte, error) {
-	var rek *signature.RekorEntry
-	if p.RekorRaw != "" {
-		if err := json.Unmarshal([]byte(p.RekorRaw), rek); err != nil {
-			return nil, err
-		}
-	}
-
-	type Alias Package
-	return json.Marshal(&struct {
-		*Alias
-		Depends []string              `json:"depends,omitempty"`
-		Tags    []string              `json:"tags,omitempty"`
-		Rekor   *signature.RekorEntry `json:"rekor,omitempty"`
-	}{
-		Tags:    p.Tags(),
-		Depends: p.Depends(),
-		Alias:   (*Alias)(&p),
-		Rekor:   rek,
-	})
-}
-
-func (p Package) Depends() []string {
-	if p.DependsRaw == "" {
-		return nil
-	}
-	return strings.Split(p.DependsRaw, ", ")
-}
-
-func (p Package) Tags() []string {
-	if p.TagRaw == "" {
-		return nil
-	}
-	return strings.Split(p.TagRaw, ", ")
-}
-
-func (p Package) Size() int {
-	i, _ := strconv.Atoi(p.SizeRaw)
-	return i
-}
-
-func (p Package) InstalledSize() int {
-	i, _ := strconv.Atoi(p.InstalledSizeRaw)
-	return i
-}
-
-func (p Package) Paragraph() (Paragraph, error) {
-	graph := Paragraph{}
-	if err := mapstructure.Decode(p, &graph); err != nil {
-		return nil, err
-	}
-	if graph["Size"] == "0" {
-		delete(graph, "Size")
-	}
-	return graph, nil
-}
-
 func PackageFromParagraph(graph Paragraph) (*hedge.DebianPackage, error) {
-	var pkg hedge.DebianPackage
+	pkg := hedge.DebianPackage{
+		Name:          graph["Package"],
+		Architecture:  graph["Architecture"],
+		Breaks:        strings.Split(graph["Breaks"], ", "),
+		Conflicts:     strings.Split(graph["Conflicts"], ", "),
+		Depends:       strings.Split(graph["Depends"], ", "),
+		Description:   graph["Description"],
+		Enhances:      strings.Split(graph["Enhances"], ", "),
+		Essential:     graph["Essential"] == "yes",
+		Filename:      graph["Filename"],
+		Homepage:      graph["Homepage"],
+		Important:     graph["Important"] == "yes",
+		LuaVersions:   strings.Split(graph["LuaVersions"], " "),
+		Maintainer:    graph["Maintainer"],
+		Multiarch:     graph["Multi-Arch"],
+		PreDepends:    strings.Split(graph["Pre-Depends"], ", "),
+		Priority:      graph["Priority"],
+		Protected:     graph["Protected"] == "yes",
+		Provides:      strings.Split(graph["Provides"], ", "),
+		PythonVersion: graph["Python-Version"],
+		Recommends:    strings.Split(graph["Recommends"], ", "),
+		Replaces:      strings.Split(graph["Replaces"], ", "),
+		RubyVersions:  strings.Split(graph["RubyVersions"], " "),
+		Section:       graph["Section"],
+		Source:        graph["Source"],
+		Suggests:      strings.Split(graph["Suggests"], ", "),
+		Tags:          strings.Split(graph["Tag"], ", "),
+		Version:       graph["Version"],
+	}
+
+	if v, ok := graph["Installed-Size"]; ok {
+		i, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Installed-Size: %s", v)
+		}
+		pkg.InstalledSize = uint64(i)
+	}
+	if v, ok := graph["Size"]; ok {
+		i, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Size: %s", v)
+		}
+		pkg.Size = uint64(i)
+	}
+
+	if v, ok := graph["MD5Sum"]; ok {
+		digest, err := hex.DecodeString(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid MD5sum: %s", v)
+		}
+		pkg.Md5Sum = digest
+	}
+	if v, ok := graph["SHA256"]; ok {
+		digest, err := hex.DecodeString(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SHA256: %s", v)
+		}
+		pkg.Sha256 = digest
+	}
+
 	for k, v := range graph {
 		switch k {
-		case "Package":
-			pkg.Name = v
-		case "Architecture":
-			pkg.Architecture = v
-		case "Breaks":
-			pkg.Breaks = strings.Split(v, ", ")
-		case "Conflicts":
-			pkg.Conflicts = strings.Split(v, ", ")
-		case "Depends":
-			pkg.Depends = strings.Split(v, ", ")
-		case "Description":
-			pkg.Description = v
-		case "Enhances":
-			pkg.Enhances = strings.Split(v, ", ")
-		case "Essential":
-			pkg.Essential = v == "yes"
-		case "Filename":
-			pkg.Filename = v
-		case "Homepage":
-			pkg.Homepage = v
-		case "Important":
-			pkg.Important = v == "yes"
-		case "Installed-Size":
-			i, err := strconv.Atoi(v)
-			if err != nil {
-				return nil, fmt.Errorf("invalid Installed-Size: %s", v)
-			}
-			pkg.InstalledSize = uint64(i)
-		case "Lua-Versions":
-			pkg.LuaVersions = strings.Split(v, " ")
-		case "Maintainer":
-			pkg.Maintainer = v
-		case "MD5sum":
-			digest, err := hex.DecodeString(v)
-			if err != nil {
-				return nil, fmt.Errorf("invalid MD5sum: %s", v)
-			}
-			pkg.Md5Sum = digest
-		case "Multi-Arch":
-			pkg.Multiarch = v
-		case "Pre-Depends":
-			pkg.PreDepends = strings.Split(v, ", ")
-		case "Priority":
-			pkg.Priority = v
-		case "Protected":
-			pkg.Protected = v == "yes"
-		case "Provides":
-			pkg.Provides = v
-		case "Python-Version":
-			pkg.PythonVersion = v
-		case "Recommends":
-			pkg.Recommends = strings.Split(v, ", ")
-		case "Replaces":
-			pkg.Replaces = strings.Split(v, ", ")
-		case "Ruby-Versions":
-			pkg.RubyVersions = strings.Split(v, ", ")
-		case "Section":
-			pkg.Section = v
-		case "SHA256":
-			digest, err := hex.DecodeString(v)
-			if err != nil {
-				return nil, fmt.Errorf("invalid SHA256: %s", v)
-			}
-			pkg.Sha256 = digest
-		case "Size":
-			i, err := strconv.Atoi(v)
-			if err != nil {
-				return nil, fmt.Errorf("invalid Size: %s", v)
-			}
-			pkg.Size = uint64(i)
-		case "Source":
-			pkg.Source = v
-		case "Suggests":
-			pkg.Suggests = strings.Split(v, ", ")
-		case "Tag":
-			pkg.Tags = strings.Split(v, ", ")
-		case "Version":
-			pkg.Version = v
-
+		case "Package", "Architecture", "Breaks", "Conflicts", "Depends", "Description", "Enhances", "Essential", "Filename", "Homepage", "Important", "Installed-Size", "Lua-Versions", "Maintainer", "MD5sum", "Multi-Arch",
+			"Pre-Depends", "Priority", "Protected", "Provides", "Python-Version", "Recommends", "Replaces", "Ruby-Versions", "Section", "SHA256", "Size", "Source", "Suggests", "Tag", "Version":
+			// Mapped above
 		case "Build-Ids", "Built-Using", "Build-Essential",
 			"Cnf-Extra-Commands", "Cnf-Ignore-Commands", "Cnf-Priority-Bonus", "Cnf-Visible-Pkgname",
 			"Description-md5",
@@ -192,4 +91,43 @@ func PackageFromParagraph(graph Paragraph) (*hedge.DebianPackage, error) {
 		}
 	}
 	return &pkg, nil
+}
+
+func boolToDebian(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
+func ParagraphFromPackage(pkg *hedge.DebianPackage) Paragraph {
+	return Paragraph{
+		"Package":        pkg.Name,
+		"Architecture":   pkg.Architecture,
+		"Breaks":         strings.Join(pkg.Breaks, ", "),
+		"Conflicts":      strings.Join(pkg.Conflicts, ", "),
+		"Depends":        strings.Join(pkg.Depends, ", "),
+		"Description":    pkg.Description,
+		"Enhances":       strings.Join(pkg.Enhances, ", "),
+		"Essential":      boolToDebian(pkg.Essential),
+		"Filename":       pkg.Filename,
+		"Homepage":       pkg.Homepage,
+		"Important":      boolToDebian(pkg.Important),
+		"LuaVersions":    strings.Join(pkg.LuaVersions, " "),
+		"Maintainer":     pkg.Maintainer,
+		"Multi-Arch":     pkg.Multiarch,
+		"Pre-Depends":    strings.Join(pkg.PreDepends, ", "),
+		"Priority":       pkg.Priority,
+		"Protected":      boolToDebian(pkg.Protected),
+		"Provides":       strings.Join(pkg.Provides, ", "),
+		"Python-Version": pkg.PythonVersion,
+		"Recommends":     strings.Join(pkg.Recommends, ", "),
+		"Replaces":       strings.Join(pkg.Replaces, ", "),
+		"Ruby-Versions":  strings.Join(pkg.RubyVersions, " "),
+		"Section":        pkg.Section,
+		"Source":         pkg.Source,
+		"Suggests":       strings.Join(pkg.Suggests, ", "),
+		"Tag":            strings.Join(pkg.Tags, ", "),
+		"Version":        pkg.Version,
+	}
 }

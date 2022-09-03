@@ -17,7 +17,7 @@ var (
 	CompressionXZ = Compression("xz")
 )
 
-func FromExtension(extension string) Compression {
+func CompressionFromExtension(extension string) Compression {
 	switch extension {
 	case ".gz":
 		return CompressionGZIP

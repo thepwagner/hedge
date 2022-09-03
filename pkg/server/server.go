@@ -69,7 +69,7 @@ func newMuxRouter(ctx context.Context, tp *sdktrace.TracerProvider, cfg Config) 
 	// Use a traced redis cache for storage:
 	storage := cached.InRedis(cfg.RedisAddr, tp)
 
-	bh := base.NewHandler(tracer, storage)
+	bh := base.NewCachedMux(tracer, storage)
 	debian.NewHandler(bh, tracer, storage, client, cfg.Ecosystems[debian.Ecosystem])
 
 	// for _, ep := range Ecosystems(tracer, client, storage) {

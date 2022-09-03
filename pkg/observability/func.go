@@ -3,11 +3,10 @@ package observability
 import (
 	"context"
 
-	"github.com/thepwagner/hedge/pkg/cached"
 	"go.opentelemetry.io/otel/trace"
 )
 
-func TracedFunc[K any, V any](tracer trace.Tracer, spanName string, wrapped cached.Function[K, V]) cached.Function[K, V] {
+func TracedFunc[K any, V any](tracer trace.Tracer, spanName string, wrapped func(context.Context, K) (V, error)) func(context.Context, K) (V, error) {
 	return func(ctx context.Context, k K) (V, error) {
 		ctx, span := tracer.Start(ctx, spanName)
 		defer span.End()
