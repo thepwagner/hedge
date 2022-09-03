@@ -54,12 +54,10 @@ func (r *RemoteRepository) LoadRelease(ctx context.Context, args LoadReleaseArgs
 	}
 	release.MirrorUrl = args.MirrorURL
 	release.Dist = args.Dist
+	release.Components = []string{"main"}
 
 	if len(args.Architectures) != 0 {
 		release.Architectures = args.Architectures
-	}
-	if len(args.Components) != 0 {
-		release.Components = args.Components
 	}
 	return release, nil
 }
